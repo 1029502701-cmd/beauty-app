@@ -125,7 +125,7 @@ async function runFaceAnalysis(influencerId: string, barePhotoKey: string, env: 
       return;
     }
     const photoBuf = await obj.arrayBuffer();
-    const photoBase64 = Buffer.from(photoBuf).toString("base64");
+    const photoBase64 = btoa(Array.from(new Uint8Array(photoBuf), byte => String.fromCharCode(byte)).join(""));
     const visionPrompt = "请用中文描述这张照片中人物面部特征，包括脸型、皮肤类型、眉毛形状、眼睛形状、三庭五眼比例、对称度。描述要专业且简洁，每点一句话。只输出描述，不要其他内容。";
 
     const resp = await fetch("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", {
