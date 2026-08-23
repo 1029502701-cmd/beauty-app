@@ -23,6 +23,24 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
   const stylesRaw = formData.get("styles");
   const styles = stylesRaw ? JSON.parse(stylesRaw as string) : null;
 
+// 从 URL 自动检测平台名称
+function detectPlatform(url: string): string {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (host.includes('xiaohongshu') || host.includes('xhslink')) return '小红书';
+    if (host.includes('douyin')) return '抖音';
+    if (host.includes('kuaishou')) return '快手';
+    if (host.includes('bilibili')) return 'B站';
+    if (host.includes('weibo')) return '微博';
+    if (host.includes('tiktok')) return 'TikTok';
+    return host.split('.')[0];
+  } catch {
+    return '其他';
+  }
+}
+const platformLink = (formData.get('platform_link') as string | null) ?? '';
+const detectedPlatform = platformLink ? detectPlatform(platformLink) : null;
+
   if (!nickname) {
     return new Response(JSON.stringify({ error: "昵称不能为空" }), {
       status: 400,
@@ -70,9 +88,9 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
 
   // 同步写入 influencers 记录（状态 pending），包含用户自选的擅长妆容
   await env.DB.prepare(
-    `INSERT INTO influencers (id, user_id, nickname, bio, makeup_photo_url, styles, status, created_at, updated_at)
+    `INSERT INTO influencers (id, user_id, nickname, bio, makeup_photo_url, styles, platform, link1, status, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
-  ).bind(influencerId, user.userId, nickname, bio, makeupPhotoUrl, styles ? JSON.stringify(styles) : null, now, now).run();
+  ).bind(influencerId, user.userId, nickname, bio, makeupPhotoUrl, styles ? JSON.stringify(styles) : null, detectedPlatform, platformLink || null, now, now).run();
 
   console.log(`[influencer/apply] Saved influencer record: id=${influencerId}, status=pending`);
 
@@ -240,3 +258,4 @@ Return a JSON object with these exact keys:
 export const onRequestPost = async (...args) => {
   return (POST as any)(...args);
 };
+
