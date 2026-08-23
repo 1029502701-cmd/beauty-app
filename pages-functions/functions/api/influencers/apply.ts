@@ -59,7 +59,7 @@ const detectedPlatform = platformLink ? detectPlatform(platformLink) : null;
 
   // 检查是否重复提交（仅拦截 pending 或 approved 状态）
   const existing = await env.DB.prepare(
-    `SELECT id, status FROM influencers WHERE user_id = ? AND status IN (?, 'approved') LIMIT 1`
+    `SELECT id, status FROM influencers WHERE user_id = ? AND status IN ('pending', 'approved') LIMIT 1`
   ).bind(user.userId).first<any>();
   if (existing) {
     return new Response(
