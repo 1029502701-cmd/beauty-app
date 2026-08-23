@@ -1,0 +1,1 @@
+{"name":"pages-functions","private":true,"version":"0.0.0","scripts":{"dev":"wrangler pages dev","dev:r2":"wrangler pages dev \"../app/dist\" --r2 R2_TEMP=beauty-temp --r2 R2_PERM=beauty-perm"},"devDependencies":{"wrangler":"^4.0.0"}}

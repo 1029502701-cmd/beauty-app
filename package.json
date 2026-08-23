@@ -1,0 +1,23 @@
+{
+  "name": "beauty-app",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "app",
+    "pages-functions",
+    "scheduled-worker"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=app",
+    "dev:pages": "npm run dev --workspace=pages-functions",
+    "dev:scheduled": "npm run dev --workspace=scheduled-worker",
+    "build": "npm run build --workspace=app",
+    "deploy:pages": "npm run build --workspace=app && cd pages-functions && npx wrangler pages deploy ../app/dist --project-name=beauty-api-pages",
+    "deploy:scheduled": "npx wrangler deploy --cwd scheduled-worker",
+    "d1:migrate:local": "npx wrangler d1 migrations apply --local --project-name=beauty-api-pages",
+    "d1:migrate:prod": "npx wrangler d1 migrations apply --project-name=beauty-api-pages"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}

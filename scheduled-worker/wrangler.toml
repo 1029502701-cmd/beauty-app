@@ -1,0 +1,22 @@
+name = "beauty-scheduled-worker"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+
+[triggers]
+crons = ["0 16 * * *"]  # UTC 16:00 = 北京时间次日00:00
+
+[[d1_databases]]
+binding = "DB"
+database_name = "beauty-app"
+database_id = "<D1_DATABASE_ID>"
+
+[[r2_buckets]]
+binding = "R2_TEMP"      # 临时图片（第一层/第二层当天清理）
+bucket_name = "beauty-temp"
+
+[[r2_buckets]]
+binding = "R2_PERM"      # 永久图片（妆容照、达人照等）
+bucket_name = "beauty-perm"
+
+[vars]
+TZ = "Asia/Shanghai"

@@ -1,0 +1,1 @@
+UPDATE reports_tier1 SET report_data = '{"faceShape": "round", "skinType": "combo", "eyebrowShape": "straight", "eyeShape": "almond", "threeFiveRatio": "balanced", "symmetry": "high", "personaTags": "gentle", "highlight": "nice", "suggestions": ["try orange tones"], "facePhotoKey": "face-photos/user-test/tier1-test-001.jpg"}' WHERE id = '8a75b24d-23b1-4b84-acf0-e32de295877d';

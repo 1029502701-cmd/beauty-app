@@ -1,0 +1,9 @@
+- generic [ref=f1e4]:
+  - generic [ref=f1e5]:
+    - button "‹ 返回" [ref=f1e6] [cursor=pointer]
+    - generic [ref=f1e7]: 生成美妆报告
+  - img "预览" [ref=f1e13]
+  - generic [ref=f1e34]:
+    - generic [ref=f1e35]: ⚠️
+    - paragraph [ref=f1e36]: 分析失败，请稍后重试
+    - button "重试" [ref=f1e37] [cursor=pointer]

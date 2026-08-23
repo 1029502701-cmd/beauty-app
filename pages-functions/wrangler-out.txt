@@ -1,0 +1,94 @@
+
+ ⛅️ wrangler 4.123.0
+────────────────────
+▲ [WARNING] Processing wrangler.toml configuration:
+
+    - Unexpected fields found in top-level field: "runtime"
+
+
+X [ERROR] Build failed with 11 errors:
+
+  X [ERROR] Could not resolve "../../_utils"
+  
+      api/influencers/apply.ts:2:40:
+        2 │ import { requireAuth, generateId } from "../../_utils";
+          ╵                                         ~~~~~~~~~~~~~~
+  
+  
+  X [ERROR] Could not resolve "../../_utils"
+  
+      api/influencers/match.ts:2:28:
+        2 │ import { requireAuth } from "../../_utils";
+          ╵                             ~~~~~~~~~~~~~~
+  
+  
+  X [ERROR] Could not resolve "../../_utils"
+  
+      api/orders/create.ts:2:40:
+        2 │ import { requireAuth, generateId } from "../../_utils";
+          ╵                                         ~~~~~~~~~~~~~~
+  
+  
+  X [ERROR] Could not resolve "../../_utils"
+  
+      api/reports/mine.ts:2:41:
+        2 │ import { requireAuth, beijingDate } from "../../_utils";
+          ╵                                          ~~~~~~~~~~~~~~
+  
+  
+  X [ERROR] Could not resolve "../../_utils"
+  
+      api/tier1/analyze.ts:2:53:
+        2 │ import { requireAuth, generateId, beijingDate } from "../../_utils";
+          ╵                                                      ~~~~~~~~~~~~~~
+  
+  
+  X [ERROR] Could not resolve "../../_utils"
+  
+      api/tier1/confirm-referral.ts:2:28:
+        2 │ import { requireAuth } from "../../_utils";
+          ╵                             ~~~~~~~~~~~~~~
+  
+  
+  X [ERROR] Could not resolve "../../_utils"
+  
+      api/tier1/share.ts:2:53:
+        2 │ import { requireAuth, generateId, beijingDate } from "../../_utils";
+          ╵                                                      ~~~~~~~~~~~~~~
+  
+  
+  X [ERROR] Could not resolve "../../_utils"
+  
+      api/tier2/generate.ts:2:40:
+        2 │ import { requireAuth, generateId } from "../../_utils";
+          ╵                                         ~~~~~~~~~~~~~~
+  
+  
+  X [ERROR] Could not resolve "../../_utils"
+  
+      api/tier2/unlock-image.ts:2:53:
+        2 │ import { requireAuth, beijingDate, generateId } from "../../_utils";
+          ╵                                                      ~~~~~~~~~~~~~~
+  
+  
+  X [ERROR] Could not resolve "../../_utils"
+  
+      api/tier3/generate.ts:2:53:
+        2 │ import { requireAuth, beijingDate, generateId } from "../../_utils";
+          ╵                                                      ~~~~~~~~~~~~~~
+  
+  
+  X [ERROR] Could not resolve "../../_utils"
+  
+      api/tier3/redeem.ts:2:40:
+        2 │ import { requireAuth, generateId } from "../../_utils";
+          ╵                                         ~~~~~~~~~~~~~~
+  
+  
+
+
+
+X [ERROR] Failed to build Functions at ./functions.
+
+
+🪵  Logs were written to "C:\Users\yao\.wrangler\logs\wrangler-2026-08-18_05-16-55_073.log"

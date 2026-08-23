@@ -1,0 +1,8 @@
+- generic [ref=f3e4]:
+  - generic [ref=f3e5]:
+    - button "‹ 返回" [ref=f3e6] [cursor=pointer]
+    - generic [ref=f3e7]: 生成美妆报告
+  - generic [ref=f3e13]:
+    - generic [ref=f3e14]: ⚠️
+    - paragraph [ref=f3e15]: 图片加载失败
+    - button "重试" [ref=f3e16] [cursor=pointer]

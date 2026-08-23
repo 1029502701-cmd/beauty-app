@@ -1,0 +1,21 @@
+- generic [ref=f4e3]:
+  - generic [ref=f4e4]:
+    - generic [ref=f4e5]: 💄
+    - heading "美妆App" [level=1] [ref=f4e6]
+    - paragraph [ref=f4e7]: 发现你的专属美丽
+  - generic [ref=f4e8]:
+    - textbox "请输入手机号" [ref=f4e10]
+    - generic [ref=f4e11]:
+      - textbox "请输入验证码" [ref=f4e12]
+      - button "获取验证码" [ref=f4e13] [cursor=pointer]
+    - button "登录" [disabled] [ref=f4e14]
+  - generic [ref=f4e15]: 或
+  - generic [ref=f4e17] [cursor=pointer]:
+    - checkbox "我已阅读并同意《用户协议》和《隐私政策》" [ref=f4e18]
+    - generic [ref=f4e19]:
+      - text: 我已阅读并同意
+      - link "《用户协议》" [ref=f4e20]:
+        - /url: "#"
+      - text: 和
+      - link "《隐私政策》" [ref=f4e21]:
+        - /url: "#"
