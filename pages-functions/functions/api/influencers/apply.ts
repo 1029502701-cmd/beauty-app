@@ -1,4 +1,4 @@
-﻿import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
+import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
 import { requireAuth, generateId, parseDeepseekJson } from "../../_utils";
 import type { Ctx } from "../../_utils";
 
