@@ -1,4 +1,4 @@
-import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
+﻿import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
 import { requireAuth, generateId, parseDeepseekJson } from "../../_utils";
 import type { Ctx } from "../../_utils";
 
@@ -59,7 +59,7 @@ const detectedPlatform = platformLink ? detectPlatform(platformLink) : null;
 
   // 检查是否重复提交（仅拦截 pending 或 approved 状态）
   const existing = await env.DB.prepare(
-    `SELECT id, status FROM influencers WHERE user_id = ? AND status IN ('pending', 'approved') LIMIT 1`
+    `SELECT id, status FROM influencers WHERE user_id = ? AND status IN (?, 'approved') LIMIT 1`
   ).bind(user.userId).first<any>();
   if (existing) {
     return new Response(
@@ -89,8 +89,8 @@ const detectedPlatform = platformLink ? detectPlatform(platformLink) : null;
   // 同步写入 influencers 记录（状态 pending），包含用户自选的擅长妆容
   await env.DB.prepare(
     `INSERT INTO influencers (id, user_id, nickname, bio, makeup_photo_url, styles, platform, link1, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
-  ).bind(influencerId, user.userId, nickname, bio, makeupPhotoUrl, styles ? JSON.stringify(styles) : null, detectedPlatform, platformLink || null, now, now).run();
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(influencerId, user.userId, nickname, bio, makeupPhotoUrl, styles ? JSON.stringify(styles) : null, detectedPlatform, platformLink || null, "pending", now, now).run();
 
   console.log(`[influencer/apply] Saved influencer record: id=${influencerId}, status=pending`);
 
