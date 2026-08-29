@@ -30,6 +30,9 @@ export const GET: FrameworkCallbackOptions['GET'] = async (context) => {
   await env.DB.prepare(
     `INSERT OR IGNORE INTO app_config (key, value, updated_at) VALUES ('influencer_contact_info', '', ?)`
   ).bind(now).run();
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO app_config (key, value, updated_at) VALUES ('sms_login_enabled', 'false', ?)`
+  ).bind(now).run();
 
   const row = await env.DB.prepare(
     'SELECT key, value, updated_at FROM app_config WHERE key = ? LIMIT 1'

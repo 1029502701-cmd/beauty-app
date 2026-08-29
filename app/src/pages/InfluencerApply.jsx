@@ -220,7 +220,7 @@ export default function InfluencerApply() {
                 ))}
               </div>
             )}
-            <button className="ia-modal-ok-btn" onClick={() => { setShowModal(false); window.location.href = '/capture'; }}>我知道了</button>
+            <button className="ia-modal-ok-btn" onClick={() => { setShowModal(false); window.location.href = '/influencer-apply'; }}>我知道了</button>
           </div>
         </div>
       )}

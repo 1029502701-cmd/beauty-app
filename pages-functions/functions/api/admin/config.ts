@@ -1,18 +1,10 @@
-﻿import type { FrameworkCallbackOptions } from '@cloudflare/workers-types';
+import type { FrameworkCallbackOptions } from '@cloudflare/workers-types';
 import { requireAdminAuth } from '../../_utils';
 import type { Ctx } from '../../_utils';
 
-// GET /api/admin/config — 读取所有配置项
+// GET /api/admin/config — 读取所有配置项（公开接口，供前端读取）
 export const GET: FrameworkCallbackOptions['GET'] = async (context) => {
   const { request, env } = context;
-
-  const isAdmin = await requireAdminAuth(request, env);
-  if (!isAdmin) {
-    return new Response(JSON.stringify({ error: '无权限' }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
 
   // 确保表存在
   await env.DB.prepare(`
@@ -24,11 +16,25 @@ export const GET: FrameworkCallbackOptions['GET'] = async (context) => {
   `).run();
 
   const now = Math.floor(Date.now() / 1000);
+  // 原有配置
   await env.DB.prepare(
     `INSERT OR IGNORE INTO app_config (key, value, updated_at) VALUES ('influencer_apply_message', '申请已提交，我们会尽快联系你～', ?)`
   ).bind(now).run();
   await env.DB.prepare(
     `INSERT OR IGNORE INTO app_config (key, value, updated_at) VALUES ('influencer_contact_info', '', ?)`
+  ).bind(now).run();
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO app_config (key, value, updated_at) VALUES ('sms_login_enabled', 'false', ?)`
+  ).bind(now).run();
+  // Tier2 新配置
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO app_config (key, value, updated_at) VALUES ('tier2_show_ai_image', 'true', ?)`
+  ).bind(now).run();
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO app_config (key, value, updated_at) VALUES ('tier2_btn_color', '#E91E63', ?)`
+  ).bind(now).run();
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO app_config (key, value, updated_at) VALUES ('tier2_hook_text', '解锁专属报告，搭配更多场景', ?)`
   ).bind(now).run();
 
   const rows = await env.DB.prepare(
@@ -40,7 +46,7 @@ export const GET: FrameworkCallbackOptions['GET'] = async (context) => {
   });
 };
 
-// POST /api/admin/config — 更新或新增配置项
+// POST /api/admin/config — 更新或新增配置项（需管理员认证）
 export const POST: FrameworkCallbackOptions['POST'] = async (context) => {
   const { request, env } = context;
 

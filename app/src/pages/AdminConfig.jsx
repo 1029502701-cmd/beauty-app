@@ -1,38 +1,43 @@
-import { useState, useEffect } from 'react';
-import { adminApi } from '../api.js';
+﻿import { useState, useEffect } from "react";
+import { adminApi } from "../api.js";
 
 const CONFIG_DEFS = [
-  { key: 'feature_request_message', label: '功能建议消息', desc: '用户提交功能建议后的提示语' },
-  { key: 'feature_request_contact', label: '功能建议联系方式', desc: '用户提交功能建议后的联系方式' },
-  { key: 'influencer_apply_message', label: '达人申请成功消息', desc: '达人申请提交成功后的提示语' },
-  { key: 'influencer_contact_info', label: '达人联系方式', desc: '后台显示的达人联系信息' },
-  { key: 'tier3_preview_text', label: 'Tier3 预览文案', desc: '第三层报告预览显示的文字' },
-  { key: 'tier3_token_price', label: 'Tier3 积分价格', desc: '解锁 Tier3 需要的积分（单位：分）' },
+  { key: "feature_request_message", label: "功能建议消息", desc: "用户提交功能建议后的提示语" },
+  { key: "feature_request_contact", label: "功能建议联系方式", desc: "用户提交功能建议后的联系方式" },
+  { key: "influencer_apply_message", label: "达人申请成功消息", desc: "达人申请提交成功后的提示语" },
+  { key: "influencer_contact_info", label: "达人联系方式", desc: "后台显示的达人联系信息" },
+  { key: "tier3_preview_text", label: "Tier3 预览文案", desc: "第三层报告预览显示的文字" },
+  { key: "tier3_token_price", label: "Tier3 积分价格", desc: "解锁 Tier3 需要的积分（单位：分）" },
+  { key: "sms_login_enabled", label: "启用验证码登录", desc: "开启后登录页显示验证码登录入口（需配置短信服务）" },
+  // Tier2 新配置
+  { key: "tier2_show_ai_image", label: "AI效果图模块显示", desc: "控制Tier2报告中AI效果图模块是否显示（关闭后可临时隐藏不稳定的AI图功能）", type: "toggle" },
+  { key: "tier2_btn_color", label: "按钮底色", desc: "Tier2报告页按钮的默认底色（前端会实时读取）", type: "color" },
+  { key: "tier2_hook_text", label: "Tier3钩子文案", desc: "Tier2报告底部的推广文案，居中对齐展示", type: "text" },
 ];
 
-const CONTACT_KEYS = ['influencer_contact_info', 'feature_request_contact'];
+const CONTACT_KEYS = ["influencer_contact_info", "feature_request_contact"];
 
 function parseContactRows(raw) {
-  if (!raw) return [{ platform: '', account: '' }];
+  if (!raw) return [{ platform: "", account: "" }];
   try {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return parsed.filter(r => r.platform || r.account).map(r => ({ platform: r.platform || '', account: r.account || '' }));
+      return parsed.filter(r => r.platform || r.account).map(r => ({ platform: r.platform || "", account: r.account || "" }));
     }
     if (parsed.platform !== undefined) {
-      return [{ platform: parsed.platform || '', account: parsed.account || '' }];
+      return [{ platform: parsed.platform || "", account: parsed.account || "" }];
     }
-    return [{ platform: '', account: raw }];
+    return [{ platform: "", account: raw }];
   } catch {
-    return [{ platform: '', account: raw }];
+    return [{ platform: "", account: raw }];
   }
 }
 
 export default function AdminConfig() {
   const [configs, setConfigs] = useState([]);
   const [editing, setEditing] = useState(null);
-  const [editValue, setEditValue] = useState('');
-  const [rows, setRows] = useState([{ platform: '', account: '' }]);
+  const [editValue, setEditValue] = useState("");
+  const [rows, setRows] = useState([{ platform: "", account: "" }]);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
 
@@ -44,15 +49,16 @@ export default function AdminConfig() {
 
   const handleEdit = (cfg) => {
     setEditing(cfg.key);
-    let val = cfg.value || '';
-    if (cfg.key === 'tier3_token_price' && val) {
+    let val = cfg.value || "";
+    if (cfg.key === "tier3_token_price" && val) {
       val = (parseInt(val, 10) / 100).toFixed(2);
     }
+    if (cfg.key === "sms_login_enabled" || cfg.key === "tier2_show_ai_image") val = val === "true";
     setEditValue(val);
     if (CONTACT_KEYS.includes(cfg.key)) {
       setRows(parseContactRows(val));
     } else {
-      setRows([{ platform: '', account: '' }]);
+      setRows([{ platform: "", account: "" }]);
     }
   };
 
@@ -60,10 +66,10 @@ export default function AdminConfig() {
     setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
   };
 
-  const handleAddRow = () => setRows(prev => [...prev, { platform: '', account: '' }]);
+  const handleAddRow = () => setRows(prev => [...prev, { platform: "", account: "" }]);
 
   const handleRemoveRow = (idx) => {
-    setRows(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev.map(r => ({ ...r, platform: '', account: '' })));
+    setRows(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev.map(r => ({ ...r, platform: "", account: "" })));
   };
 
   const handleSave = async () => {
@@ -73,20 +79,36 @@ export default function AdminConfig() {
       if (CONTACT_KEYS.includes(editing)) {
         const filtered = rows.filter(r => r.platform.trim() || r.account.trim());
         saveVal = JSON.stringify(filtered.map(r => ({ platform: r.platform.trim(), account: r.account.trim() })));
-      } else if (editing === 'tier3_token_price') {
+      } else if (editing === "tier3_token_price") {
         saveVal = String(Math.round(parseFloat(editValue) * 100));
+      } else if (editing === "sms_login_enabled" || editing === "tier2_show_ai_image") {
+        saveVal = editValue === true ? "true" : "false";
       } else {
         saveVal = editValue;
       }
       await adminApi.saveConfig(editing, saveVal);
       setEditing(null);
       setConfigs(prev => prev.map(c => c.key === editing ? { ...c, value: saveVal } : c));
-      showToast('已保存');
+      showToast("已保存");
     } catch (err) {
-      showToast(err.message || '保存失败');
+      showToast(err.message || "保存失败");
     } finally {
       setSaving(false);
     }
+  };
+
+  const getDefByKey = (key) => CONFIG_DEFS.find(d => d.key === key);
+  const isToggleKey = (key) => {
+    const def = getDefByKey(key);
+    return def?.type === "toggle";
+  };
+  const isColorKey = (key) => {
+    const def = getDefByKey(key);
+    return def?.type === "color";
+  };
+  const isTextKey = (key) => {
+    const def = getDefByKey(key);
+    return def?.type === "text";
   };
 
   return (
@@ -94,8 +116,11 @@ export default function AdminConfig() {
       {CONFIG_DEFS.map(def => {
         const cfg = configs.find(c => c.key === def.key);
         const isEditing = editing === def.key;
-        const isPrice = def.key === 'tier3_token_price';
+        const isPrice = def.key === "tier3_token_price";
         const isContact = CONTACT_KEYS.includes(def.key);
+        const isToggle = isToggleKey(def.key);
+        const isColor = isColorKey(def.key);
+        const isText = isTextKey(def.key);
         return (
           <div key={def.key} className="admin-config-item">
             <div className="admin-config-label-row">
@@ -115,57 +140,93 @@ export default function AdminConfig() {
                             type="text"
                             placeholder="平台名称"
                             value={row.platform}
-                            onChange={(e) => handleRowChange(idx, 'platform', e.target.value)}
+                            onChange={(e) => handleRowChange(idx, "platform", e.target.value)}
                           />
                           <input
                             className="admin-contact-account"
                             type="text"
                             placeholder="账号"
                             value={row.account}
-                            onChange={(e) => handleRowChange(idx, 'account', e.target.value)}
+                            onChange={(e) => handleRowChange(idx, "account", e.target.value)}
                           />
                           <button className="admin-contact-del" onClick={() => handleRemoveRow(idx)} title="删除">✕</button>
                         </div>
                       ))}
                       <button className="admin-contact-add" onClick={handleAddRow}>+ 添加一条</button>
                     </div>
+                  ) : isToggle ? (
+                    <button
+                      className={"admin-toggle-btn" + (editValue === true ? " admin-toggle-btn--on" : "")}
+                      onClick={() => setEditValue(v => !v)}
+                    >
+                      {editValue === true ? "开" : "关"}
+                    </button>
+                  ) : isColor ? (
+                    <div className="admin-color-picker-row">
+                      <input
+                        className="admin-color-input"
+                        type="color"
+                        value={editValue || "#000000"}
+                        onChange={(e) => setEditValue(e.target.value)}
+                      />
+                      <input
+                        className="admin-color-text-input"
+                        type="text"
+                        value={editValue || "#000000"}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        placeholder="#000000"
+                      />
+                    </div>
                   ) : (
                     <>
                       <input
                         className="admin-config-input"
-                        type={isPrice ? 'number' : 'text'}
-                        step={isPrice ? '0.01' : undefined}
-                        min={isPrice ? '0' : undefined}
+                        type={isPrice ? "number" : isText ? "text" : "text"}
+                        step={isPrice ? "0.01" : undefined}
+                        min={isPrice ? "0" : undefined}
                         value={editValue}
                         onChange={(e) => setEditValue(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setEditing(null); }}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") setEditing(null); }}
                         autoFocus
                       />
                       {isPrice && <span className="admin-config-unit">元（存为分）</span>}
                     </>
                   )}
                   <button className="admin-btn-save" onClick={handleSave} disabled={saving}>
-                    {saving ? '保存中...' : '保存'}
+                    {saving ? "保存中..." : "保存"}
                   </button>
                   <button className="admin-btn-cancel" onClick={() => setEditing(null)}>取消</button>
                 </>
               ) : (
                 <>
-                  <span style={{ fontSize: '14px', color: '#374151', flex: 1, wordBreak: 'break-all' }}>
-                    {cfg?.value
-                      ? (() => {
-                          try {
-                            const parsed = JSON.parse(cfg.value);
-                            if (Array.isArray(parsed) && parsed.length) {
-                              return parsed.map(r => `${r.platform}：${r.account}`).join('、');
-                            }
-                            if (parsed?.platform) return `${parsed.platform}：${parsed.account || ''}`;
-                            return cfg.value;
-                          } catch { return cfg.value; }
-                        })()
-                      : '(未设置)'
-                    }
-                  </span>
+                  {isToggle ? (
+                    <button
+                      className={"admin-toggle-btn" + (cfg?.value === "true" ? " admin-toggle-btn--on" : "")}
+                      onClick={() => handleEdit(cfg)}
+                    >
+                      {cfg?.value === "true" ? "开" : "关"}
+                    </button>
+                  ) : isColor ? (
+                    <div className="admin-color-preview" style={{ background: cfg?.value || "#000000" }}>
+                      <span>{cfg?.value || "#000000"}</span>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: "14px", color: "#374151", flex: 1, wordBreak: "break-all" }}>
+                      {cfg?.value
+                        ? (() => {
+                            try {
+                              const parsed = JSON.parse(cfg.value);
+                              if (Array.isArray(parsed) && parsed.length) {
+                                return parsed.map(r => `${r.platform}：${r.account}`).join("、");
+                              }
+                              if (parsed?.platform) return `${parsed.platform}：${parsed.account || ""}`;
+                              return cfg.value;
+                            } catch { return cfg.value; }
+                          })()
+                        : "(未设置)"
+                      }
+                    </span>
+                  )}
                   <button className="admin-btn-save" onClick={() => handleEdit(cfg)}>编辑</button>
                 </>
               )}

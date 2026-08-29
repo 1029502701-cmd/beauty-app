@@ -1,14 +1,24 @@
-import { useEffect } from 'react';
-
-const ADMIN_TOKEN_KEY = 'admin_session_token';
+import { useState, useEffect } from 'react';
+import { getStorageItem, STORAGE_KEYS } from '../utils/storage.js';
 
 export default function AdminRequireAuth({ children }) {
+  const [authChecked, setAuthChecked] = useState(false);
+
   useEffect(() => {
-    if (!localStorage.getItem(ADMIN_TOKEN_KEY)) {
-      window.history.replaceState(null, '', '/admin/login');
-      window.location.href = '/admin/login';
-    }
+    void (async () => {
+      const token = await getStorageItem(STORAGE_KEYS.ADMIN_SESSION_TOKEN);
+      if (!token) {
+        window.history.replaceState(null, '', '/admin/login');
+        window.location.href = '/admin/login';
+      } else {
+        setAuthChecked(true);
+      }
+    })();
   }, []);
+
+  if (!authChecked) {
+    return <div className="loading">加载中...</div>;
+  }
 
   return children;
 }

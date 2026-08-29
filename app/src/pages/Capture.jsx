@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext.jsx';
 import { BASE } from '../api.js';
 import { checkAndResize } from '../utils/imageResize.js';
+import { getStorageItem, STORAGE_KEYS } from '../utils/storage.js';
 
 /* --- 判断是否在 Capacitor/小程序 环境 --- */
 const isNativeEnv = typeof navigator !== 'undefined' && !!navigator.userAgent?.match(/(iPhone|iPad|iPod|Android)/i);
@@ -227,11 +228,12 @@ export default function Capture() {
         setApiReady(true);
 
         if (refToken) {
+          const refTokenVal = await getStorageItem(STORAGE_KEYS.SESSION_TOKEN);
           fetch(BASE + '/tier1/confirm-referral', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${localStorage.getItem('session_token')}`,
+              Authorization: `Bearer ${refTokenVal}`,
             },
             body: JSON.stringify({ ref: refToken }),
           }).catch(() => {});
@@ -282,7 +284,7 @@ export default function Capture() {
     e.target.value = '';
   }, [startAnalysis]);
 
-  const handleRetry = useCallback(() => {
+  const handleRetry = useCallback(async () => {
     if (!preview) return;
     controllerRef.current?.abort();
     if (completionTimeoutRef.current !== null) {
@@ -290,7 +292,19 @@ export default function Capture() {
       completionTimeoutRef.current = null;
     }
     setStage('analyzing');
-    startAnalysis(preview);
+    // 重新走完整压缩流程（与首次上传 handleFileChange 一致），
+    // 避免 preview 是未压缩原图时把大 token 数据发出去
+    try {
+      const byteStr = atob(preview.split(',')[1]);
+      const arr = new Uint8Array(byteStr.length);
+      for (let i = 0; i < byteStr.length; i++) arr[i] = byteStr.charCodeAt(i);
+      const blob = new Blob([arr], { type: 'image/jpeg' });
+      const resizedDataUrl = await checkAndResize(blob);
+      startAnalysis(resizedDataUrl);
+    } catch (e) {
+      setError(e.message);
+      setStage('error');
+    }
   }, [preview, startAnalysis]);
 
   const openArchive = useCallback(() => {

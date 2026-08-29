@@ -3,6 +3,7 @@ import { AuthContext } from '../context/AuthContext.jsx';
 import RequireAuth from '../router/RequireAuth.jsx';
 import { getCompliment } from './complimentMap.js';
 import { BASE } from '../api.js';
+import { removeStorageItem, STORAGE_KEYS } from '../utils/storage.js';
 
 const RESULT_ITEMS = [
   { key: 'faceShape',        label: '脸型',         icon: '◎' },
@@ -154,11 +155,14 @@ export default function ReportPage() {
   const { token } = useContext(AuthContext);
   const state = window.history.state || {};
   const urlParams = new URLSearchParams(window.location.search);
-  const reportId = state.reportId ?? urlParams.get('id') ?? null;
+  const reportId = state.reportId ?? urlParams.get('id') ?? (window.location.pathname.match(/^\/report\/([^?]+)/)?.[1] || null);
 
   const [activeTab, setActiveTab] = useState(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.get('tab') === 'tier3' ? '专属' : '初识';
+    const tab = params.get('tab');
+    if (tab === 'tier3' || tab === '专属') return '专属';
+    if (tab === '进阶') return '进阶';
+    return '初识';
   });
   const [tier1Report, setTier1Report] = useState(null);
   const [preview, setPreview] = useState(state.preview || sessionStorage.getItem('capture_preview') || null);
@@ -166,6 +170,8 @@ export default function ReportPage() {
   const [tier2Status, setTier2Status] = useState(null);
   const [tier2Content, setTier2Content] = useState(null);
   const [tier2LoadError, setTier2LoadError] = useState(null);
+  const [tier2Generation, setTier2Generation] = useState(null);
+  const [tier2Processing, setTier2Processing] = useState(false);
   const [imgUnlockLoading, setImgUnlockLoading] = useState(false);
   const [showAd, setShowAd] = useState(false);
   const [imgResult, setImgResult] = useState(null);
@@ -176,6 +182,8 @@ export default function ReportPage() {
   const shareUrlRef = useRef('');
   const [shareLoading, setShareLoading] = useState(false);
   const [shareDone, setShareDone] = useState(false);
+  const [adUnlockLoading, setAdUnlockLoading] = useState(false);
+  const [shareDailyLimitExceeded, setShareDailyLimitExceeded] = useState(false);
   const [expandedDims, setExpandedDims] = useState({});
   const [reportValid, setReportValid] = useState(null); // null = not checked yet
 
@@ -225,7 +233,7 @@ export default function ReportPage() {
     return () => { cancelled = true; };
   }, [reportId, token]);
 
-  // Load tier2 status
+  // Load tier2 generation status on mount
   useEffect(() => {
     if (!reportId) return;
     let cancelled = false;
@@ -236,33 +244,50 @@ export default function ReportPage() {
         });
         if (!res.ok) throw new Error('请求失败: ' + res.status);
         const data = await res.json();
-        if (!cancelled) setTier2Status(data);
-      } catch { if (!cancelled) setTier2Status({ unlocked: false }); }
+        if (!cancelled) {
+          setTier2Generation(data);
+          setTier2Status(data);
+          if (data.generationStatus === 'ready' && data.content) {
+            setTier2Content(data.content);
+          }
+          // pending 状态也视为需要触发生成（兼容旧数据）
+          if (data.generationStatus === 'pending') {
+            setTier2Generation({ generationStatus: 'processing', tier2ReportId: data.tier2ReportId });
+            setTier2Status({ generationStatus: 'processing', tier2ReportId: data.tier2ReportId });
+          }
+        }
+      } catch {
+        if (!cancelled) setTier2Generation({ generationStatus: 'not_found' });
+      }
     })();
     return () => { cancelled = true; };
   }, [reportId, token]);
 
-  // Load tier2 content when unlocked
+  // Poll for tier2 generation completion
   useEffect(() => {
-    if (!reportId || !tier2Status?.unlocked) return;
-    let cancelled = false;
-    async function load() {
+    if (tier2Generation?.generationStatus !== 'processing') return;
+    setTier2Processing(true);
+    const interval = setInterval(async () => {
+      if (!reportId || !tier2Generation?.tier2ReportId) return;
       try {
-        const res = await fetch(BASE + '/tier2/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ reportId }),
+        const res = await fetch(BASE + '/tier2/status?tier2Id=' + encodeURIComponent(tier2Generation.tier2ReportId), {
+          headers: { Authorization: `Bearer ${token}` },
         });
+        if (!res.ok) throw new Error('请求失败: ' + res.status);
         const data = await res.json();
-        if (!res.ok) throw new Error(data?.error || '请求失败 ' + res.status);
-        if (!cancelled) { setTier2Content(data.content); setTier2LoadError(null); }
-      } catch (e) { if (!cancelled) setTier2LoadError(e.message); }
-    }
-    void load();
-    return () => { cancelled = true; };
-  }, [reportId, tier2Status, token]);
+        setTier2Generation(data);
+        if (data.generationStatus === 'ready' || data.generationStatus === 'failed') {
+          setTier2Processing(false);
+          clearInterval(interval);
+        }
+      } catch {
+        // keep polling on transient errors
+      }
+    }, 2000);
+    return () => { clearInterval(interval); setTier2Processing(false); };
+  }, [tier2Generation?.generationStatus, tier2Generation?.tier2ReportId, reportId, token]);
 
-  // Load tier3 token status and questionnaire options when tab is active
+// Load tier3 token status and questionnaire options when tab is active
   useEffect(() => {
     if (!token) return;
     if (activeTab !== '专属') return;
@@ -478,7 +503,16 @@ export default function ReportPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ reportId }),
       });
-      if (!res.ok) throw new Error('分享接口请求失败');
+      if (!res.ok) {
+        if (res.status === 400 || res.status === 429) {
+          const errData = await res.json().catch(() => ({}));
+          if (errData?.error === 'daily_limit_exceeded') {
+            setShareDailyLimitExceeded(true);
+            return;
+          }
+        }
+        throw new Error('分享接口请求失败');
+      }
       const { shareUrl } = await res.json();
       shareUrlRef.current = shareUrl;
       const QRCode = await import('qrcode');
@@ -504,6 +538,21 @@ export default function ReportPage() {
         }
       } catch {}
       setShareDone(true);
+      // share.ts 现在返回 tier2ReportId，直接开始轮询
+      const shareData = await res.json();
+      if (shareData?.tier2ReportId) {
+        setTier2Generation({ generationStatus: 'processing', tier2ReportId: shareData.tier2ReportId });
+      } else if (tier2Generation?.generationStatus === 'not_found' || tier2Generation?.generationStatus === 'failed') {
+        const initRes = await fetch(BASE + '/tier2/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ reportId }),
+        });
+        const initData = await initRes.json();
+        if (initRes.ok && initData?.tier2ReportId) {
+          setTier2Generation({ generationStatus: 'processing', tier2ReportId: initData.tier2ReportId });
+        }
+      }
     } catch (err) { console.error('[ReportPage] 分享异常:', err); }
     finally { setShareLoading(false); }
   }, [shareLoading, reportId, token]);
@@ -520,7 +569,7 @@ export default function ReportPage() {
       const res = await fetch(BASE + '/tier2/unlock-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ reportId }),
+        body: JSON.stringify({ reportId: tier2Status?.tier2ReportId || reportId }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -543,6 +592,33 @@ export default function ReportPage() {
     unlockBusyRef.current = true;
   }, [reportId]);
 
+
+  // --- 广告解锁进阶报告（不依赖分享，仅消耗每日限额）---
+  const handleAdFinishForTier2 = useCallback(async () => {
+    setShowAd(false);
+    setAdUnlockLoading(true);
+    try {
+      const res = await fetch(BASE + '/tier2/unlock-by-ad', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ tier1ReportId: reportId }),
+      });
+      const data = await res.json();
+      if (!res.ok || data?.error === 'daily_limit_exceeded') {
+        if (data?.error === 'daily_limit_exceeded') {
+          alert(data.message || '今日进阶报告次数已用完，明天再来吧');
+        }
+        return;
+      }
+      if (data?.tier2ReportId) {
+        setTier2Generation({ generationStatus: 'processing', tier2ReportId: data.tier2ReportId });
+      }
+    } catch (e) {
+      console.error('[ReportPage] unlock-by-ad 异常:', e);
+    } finally {
+      setAdUnlockLoading(false);
+    }
+  }, [reportId, token]);
   const toggleDim = (dim) => setExpandedDims((prev) => ({ ...prev, [dim]: !prev[dim] }));
 
   const initReport = tier1Report;
@@ -647,20 +723,46 @@ export default function ReportPage() {
           <div className="report-tab-content">
             {!reportId ? <div className="report-loading">加载中...</div>
             : !tier2Status ? <div className="report-loading">加载中...</div>
-            : !tier2Status.unlocked ? (
+            : tier2Generation?.generationStatus === 'not_found' || tier2Generation?.generationStatus === 'failed' ? (
               <div className="report-unlock-prompt">
                 <div className="report-unlock-icon">🔒</div>
-                <p className="report-unlock-text">分享初识报告即可解锁进阶报告</p>
+                <p className="report-unlock-text">选择方式解锁进阶报告</p>
+                <div className="report-unlock-options">
+                  <button
+                    className="report-unlock-btn"
+                    onClick={handleShareReport}
+                    disabled={shareLoading || !reportId}
+                  >
+                    {shareLoading ? '生成分享中…' : '分享解锁'}
+                  </button>
+                  <button
+                    className="report-unlock-btn-alt"
+                    onClick={handleAdFinishForTier2}
+                    disabled={adUnlockLoading || !reportId}
+                  >
+                    {adUnlockLoading ? '解锁中…' : '看广告解锁'}
+                  </button>
+                </div>
+                <p className="report-unlock-hint">分享邀请好友完成分析，或观看5秒广告即可解锁</p>
+                {shareDailyLimitExceeded && (
+                  <p className="report-daily-limit-text">今日进阶报告次数已用完，明天再来吧</p>
+                )}
                 <button className="report-unlock-btn" onClick={handleShareReport} disabled={shareLoading || !reportId}>
                   {shareLoading ? '生成分享中…' : '去分享解锁'}
                 </button>
-                <p className="report-unlock-hint">分享后将自动解锁更多深度分析</p>
+
               </div>
-            ) : tier2LoadError ? (
+            ) : tier2Generation?.generationStatus === 'failed' ? (
               <div className="report-error">
-                <p>加载失败：{tier2LoadError}</p>
-                <button onClick={() => { setTier2Content(null); setTier2LoadError(null); }}>重试</button>
+                <p>生成失败，请稍后重试</p>
+                <button onClick={() => {
+                  setTier2Generation(null);
+                  setTier2Content(null);
+                  setTier2LoadError(null);
+                }}>重试</button>
               </div>
+            ) : tier2Generation?.generationStatus === 'processing' || tier2Processing ? (
+              <div className="report-loading"><div className="report-loading-spinner" /><p>AI 正在生成进阶报告，请稍候…</p></div>
             ) : !t2 ? <div className="report-loading">正在生成进阶报告...</div> : (
               <>
                 <div className="report-section">
@@ -698,12 +800,40 @@ export default function ReportPage() {
                           </button>
                           {isExpanded && (
                             <div className="report-dim-products">
-                              {recs.slice(0, 2).map((rec, i) => (
-                                <div key={i} className="report-product-card">
-                                  <span className="report-product-name">{rec.name || rec}</span>
-                                  <span className="report-product-desc">{rec.desc || ''}</span>
-                                </div>
-                              ))}
+                              {recs.slice(0, 2).map((rec, i) => {
+                                const hasMedia = rec.imageUrl || rec.price;
+                                return (
+                                  <a
+                                    key={i}
+                                    href={rec.itemUrl || undefined}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className={"report-product-card" + (hasMedia ? " report-product-card--rich" : "")}
+                                    onClick={(e) => { if (!rec.itemUrl) e.preventDefault(); }}
+                                  >
+                                    {hasMedia && rec.imageUrl ? (
+                                      <img
+                                        src={rec.imageUrl}
+                                        alt={rec.name || ""}
+                                        className="report-product-img"
+                                        referrerPolicy="no-referrer"
+                                        loading="lazy"
+                                        onError={(e) => { e.target.style.display = "none"; }}
+                                      />
+                                    ) : null}
+                                    <div className="report-product-info">
+                                      <span className="report-product-name">{rec.name || rec}</span>
+                                      {rec.price ? (
+                                        <span className="report-product-price">¥{rec.price}</span>
+                                      ) : null}
+                                      {rec.brandName ? (
+                                        <span className="report-product-brand">{rec.brandName}</span>
+                                      ) : null}
+                                      <span className="report-product-desc">{rec.desc || ""}</span>
+                                    </div>
+                                  </a>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -743,7 +873,7 @@ export default function ReportPage() {
                       {(imgResult.reason === 'auth_expired' || imgResult.reason === 'network_error' || imgResult.reason === 'unknown') && (
                         <><p className="report-fail-text">{imgResult.message || '解锁失败，请稍后重试'}</p>
                         {imgResult.reason !== 'auth_expired' && <button className="report-retry-btn" onClick={handleUnlockImage}>重试</button>}
-                        {imgResult.reason === 'auth_expired' && <button className="report-retry-btn" onClick={() => { localStorage.removeItem('session_token'); window.location.href = '/login'; }}>重新登录</button>}
+                        {imgResult.reason === 'auth_expired' && <button className="report-retry-btn" onClick={async () => { await removeStorageItem(STORAGE_KEYS.SESSION_TOKEN); window.location.href = '/login'; }}>重新登录</button>}
                         </>
                       )}
                     </div>
@@ -894,4 +1024,5 @@ export default function ReportPage() {
     </RequireAuth>
   );
 }
+
 

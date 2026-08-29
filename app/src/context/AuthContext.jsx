@@ -25,8 +25,6 @@ export function AuthProvider({ children }) {
   const [token, setTokenState] = useState(getToken);
   const [loading, setLoading] = useState(true);
   const [validating, setValidating] = useState(false);
-  // hasPassword 在登录时由父组件传入，持久化到 localStorage
-  const [hasPassword, setHasPasswordState] = useState(() => localStorage.getItem('has_password') === 'true');
 
   useEffect(() => {
     void (async () => {
@@ -52,22 +50,14 @@ export function AuthProvider({ children }) {
     setTokenState(newToken);
   }, []);
 
-  // 设置 hasPassword（登录成功后调用）
-  const setHasPassword = useCallback((val) => {
-    setHasPasswordState(val);
-    localStorage.setItem('has_password', val ? 'true' : 'false');
-  }, []);
-
   const logout = useCallback(async () => {
     try { await authApi.logout(); } catch {}
     clearTokenInvalidFlag();
     setToken(null);
     setTokenState(null);
-    setHasPasswordState(false);
-    localStorage.removeItem('has_password');
     currentOnTokenInvalid = null;
   }, []);
 
-  const value = { token, loading, validating, login, logout, hasPassword, setHasPassword };
+  const value = { token, loading, validating, login, logout };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

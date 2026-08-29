@@ -1,4 +1,4 @@
-﻿// Inline Platform type (replaces broken import from functions/worker)
+// Inline Platform type (replaces broken import from functions/worker)
 
 // Session key prefix in KV
 export const SESSION_PREFIX = "session:";
@@ -153,4 +153,109 @@ export function parseDeepseekJson(raw: string): Record<string, unknown> | null {
     console.error("[parseDeepseekJson] Invalid JSON after stripping markdown wrapper:", cleaned.slice(0, 500));
     return null;
   }
+}
+
+import { findProductByKeyword, findCuratedProduct } from "./_taobao";
+
+// Enrich product recommendations with real Taobao data (image, price, link) + curated second product
+async function enrichProductRecs(
+  report: Record<string, unknown>,
+  env: Ctx["env"]
+): Promise<void> {
+  const productRecs = (report.productRecs as Record<string, unknown[]>) ?? {};
+  const dims = Object.keys(productRecs);
+  for (const dim of dims) {
+    const items = productRecs[dim] as Array<{ name: string; desc: string }>;
+    if (!Array.isArray(items)) continue;
+    for (const item of items) {
+      if (!item || typeof item !== "object") continue;
+      const name = (item as Record<string, unknown>).name as string;
+      if (!name || typeof name !== "string") continue;
+      try {
+        const product = await findProductByKeyword(name, env);
+        if (product) {
+          (item as Record<string, unknown>).imageUrl = product.imageUrl;
+          (item as Record<string, unknown>).price = product.price;
+          (item as Record<string, unknown>).itemUrl = product.itemUrl;
+          (item as Record<string, unknown>).shopTitle = product.shopTitle;
+          (item as Record<string, unknown>).brandName = product.brandName;
+          console.log("[tier2/enrich] Found: " + name + " -> " + product.title.slice(0, 40));
+        } else {
+          console.log("[tier2/enrich] No match for: " + name);
+        }
+        // Check for curated second product
+        const curated = await findCuratedProduct(name, env);
+        if (curated) {
+          (item as Record<string, unknown>).curatedProduct = {
+            name: curated.name,
+            price: curated.price,
+            imageUrl: curated.imageUrl,
+            itemUrl: curated.itemUrl,
+            shopTitle: curated.shopTitle,
+          };
+          console.log("[tier2/enrich] Curated 2nd product: " + curated.name);
+        }
+      } catch (e) {
+        console.warn("[tier2/enrich] Error enriching " + name + ":", e);
+      }
+    }
+  }
+}
+
+export async function callDeepSeekTier2(
+  tier1Report: Record<string, unknown>,
+  env: Ctx["env"],
+  loggerPrefix: string = "[tier2/generate]"
+): Promise<Record<string, unknown> | null> {
+  const apiKey = env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    console.warn(loggerPrefix + " DEEPSEEK_API_KEY not configured");
+    return null;
+  }
+  const prompt = `You are a professional beauty consultant. Based on the following face analysis report, provide detailed makeup and skincare recommendations.
+
+Face Analysis Report:
+${JSON.stringify(tier1Report, null, 2)}
+
+Output strict JSON only (no markdown):
+{
+  "coreMakeup": "core makeup recommendation",
+  "reason": "why this style suits the user",
+  "style": "style tag",
+  "keyAreas": ["key area 1 advice", "key area 2 advice", "key area 3 advice", "key area 4 advice", "key area 5 advice", "key area 6 advice"],
+  "formula": "complete makeup formula",
+  "productRecs": {
+    "faceShape": [{"name": "product", "desc": "reason"}],
+    "skinType": [{"name": "product", "desc": "reason"}],
+    "eyebrowShape": [{"name": "product", "desc": "reason"}],
+    "eyeShape": [{"name": "product", "desc": "reason"}],
+    "threeFiveRatio": [{"name": "product", "desc": "reason"}],
+    "symmetry": [{"name": "product", "desc": "reason"}]
+  }
+}`;
+  async function doCall(retryCount: number): Promise<Record<string, unknown> | null> {
+    try {
+      const resp = await fetch("https://api.deepseek.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: "deepseek-chat", messages: [{ role: "user", content: prompt }], max_tokens: 4000, temperature: 0.3 }),
+        signal: AbortSignal.timeout(60000),
+      });
+      if (!resp.ok) {
+        const eb = await resp.text().catch(() => "");
+        console.error(loggerPrefix + " DeepSeek error " + resp.status + ": " + eb.slice(0, 200));
+        return null;
+      }
+      const data: any = await resp.json();
+      const raw = data?.choices?.[0]?.message?.content;
+      if (!raw) return null;
+      const report = parseDeepseekJson(raw);
+      if (report) { await enrichProductRecs(report, env); }
+      return report;
+    } catch (e) {
+      console.error(loggerPrefix + " DeepSeek exception:", e);
+      return null;
+    }
+  }
+  return doCall(0);
 }

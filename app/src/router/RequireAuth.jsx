@@ -2,7 +2,7 @@ import { useContext, useEffect, useRef, useState } from 'react';
 import { AuthContext, setOnTokenInvalid } from '../context/AuthContext.jsx';
 
 export default function RequireAuth({ children, fallbackPath = '/home', onNavigate }) {
-  const { token, loading, validating, hasPassword } = useContext(AuthContext);
+  const { token, loading, validating } = useContext(AuthContext);
   const [forceRedirect, setForceRedirect] = useState(false);
   const hasNavigatedRef = useRef(false);
 
@@ -27,18 +27,6 @@ export default function RequireAuth({ children, fallbackPath = '/home', onNaviga
   if (loading || validating) {
     return <div className="loading">加载中...</div>;
   }
-
-  // 已登录但尚未设置密码：除 /set-password 本身外，全部拦截
-  useEffect(() => {
-    if (token && !hasPassword && onNavigate && !hasNavigatedRef.current) {
-      const currentPath = window.location.pathname;
-      if (currentPath !== '/set-password') {
-        hasNavigatedRef.current = true;
-        sessionStorage.setItem('auth_redirect_from', currentPath);
-        onNavigate('/set-password');
-      }
-    }
-  }, [token, hasPassword, onNavigate]);
 
   if (!token) {
     useEffect(() => {

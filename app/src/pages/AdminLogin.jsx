@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { adminApi } from '../api.js';
+import { setStorageItem, STORAGE_KEYS } from '../utils/storage.js';
 
 export default function AdminLogin() {
   const [username, setUsername] = useState('');
@@ -13,7 +14,7 @@ export default function AdminLogin() {
     setLoading(true);
     try {
       const data = await adminApi.login(username, password);
-      localStorage.setItem('admin_session_token', data.sessionId);
+      await setStorageItem(STORAGE_KEYS.ADMIN_SESSION_TOKEN, data.sessionId);
       window.history.replaceState(null, '', '/admin/dashboard');
       window.location.href = '/admin/dashboard';
     } catch (err) {

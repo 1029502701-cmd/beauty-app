@@ -3,6 +3,7 @@ import { AuthContext } from '../context/AuthContext.jsx';
 import RequireAuth from '../router/RequireAuth.jsx';
 import { getCompliment } from './complimentMap.js';
 import { BASE } from '../api.js';
+import { getStorageItem, STORAGE_KEYS } from '../utils/storage.js';
 
 const RESULT_ITEMS = [
   { key: 'faceShape',        label: '脸型',         icon: '◎' },
@@ -63,11 +64,12 @@ export default function Tier1Result() {
 
     try {
       // 1. 调用后端获取 token 和 shareUrl
+      const shareToken = await getStorageItem(STORAGE_KEYS.SESSION_TOKEN);
       const res = await fetch(BASE + '/tier1/share', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('session_token')}`,
+          Authorization: `Bearer ${shareToken}`,
         },
         body: JSON.stringify({ reportId }),
       });

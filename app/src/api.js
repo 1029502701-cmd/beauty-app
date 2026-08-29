@@ -23,11 +23,10 @@ async function request(path, options = {}) {
 }
 
 export const authApi = {
-  sendCode: (phone) => request('/auth/phone/send-code', { method: 'POST', body: JSON.stringify({ phone }) }),
-  phoneLogin: (phone, code) => request('/auth/phone/login', { method: 'POST', body: JSON.stringify({ phone, code }) }),
-  loginPassword: (phone, password) => request('/auth/phone/login-password', { method: 'POST', body: JSON.stringify({ phone, password }) }),
+  loginPassword: (account, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ account, password }) }),
+  loginOrRegister: (account, password, confirmPassword) => request('/auth/login-or-register', { method: 'POST', body: JSON.stringify({ account, password, confirmPassword }) }),
+  sendSmsCode: (phone) => request('/auth/phone/send-code', { method: 'POST', body: JSON.stringify({ phone }) }),
   setPassword: (password) => request('/auth/set-password', { method: 'POST', body: JSON.stringify({ password }) }),
-  wechatLogin: (code) => request('/auth/wechat/login', { method: 'POST', body: JSON.stringify({ code }) }),
   logout: () => request('/auth/logout', { method: 'POST' }),
   probe: () => request('/reports/mine', { method: 'GET' }),
 };

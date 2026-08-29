@@ -1,9 +1,9 @@
 import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
-import { requireAuth , parseDeepseekJson } from "../../_utils";
+import { requireAuth, parseDeepseekJson, callDeepSeekTier2 } from "../../_utils";
 import type { Ctx } from "../../_utils";
 
 // POST /api/tier2/generate
-// 幂等：若 content 已生成（generation_status=ready）直接返回；否则用 tier1 报告数据调用 DeepSeek 生成
+// 异步模式：立即返回 processing，后台生成后更新为 ready
 export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
   const { request, env } = context;
   const user = await requireAuth(request, env);
@@ -38,15 +38,15 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
     });
   }
 
-  // 2. 幂等：已生成直接返回
+  // 2. 已生成直接返回（幂等）
   if (tier2Row.generation_status === "ready") {
     try {
       const content = JSON.parse(tier2Row.content);
-      return new Response(JSON.stringify({ id: tier2Row.id, content }), {
+      return new Response(JSON.stringify({ id: tier2Row.id, content, generationStatus: "ready" }), {
         headers: { "Content-Type": "application/json" },
       });
     } catch {
-      // content 损坏，继续生成
+      // content 损坏，继续异步生成
     }
   }
 
@@ -82,101 +82,45 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
     );
   }
 
-  // 5. 调用 DeepSeek 生成 tier2 内容
-  const tier2Content = await callDeepSeekTier2(tier1Report, env);
-
-  if (!tier2Content) {
-    return new Response(
-      JSON.stringify({ error: "生成失败", retryable: true, message: "AI 服务调用失败，请重试" }),
-      { status: 502, headers: { "Content-Type": "application/json" } }
-    );
-  }
-
-  // 6. 持久化到 reports_tier2
+  // 5. 立即标记为 processing
   const now = Math.floor(Date.now() / 1000);
   await env.DB.prepare(
-    `UPDATE reports_tier2 SET content = ?, generation_status = 'ready', updated_at = ? WHERE id = ?`
-  )
-    .bind(JSON.stringify(tier2Content), now, tier2Row.id)
-    .run();
+    `UPDATE reports_tier2 SET generation_status = 'processing', updated_at = ? WHERE id = ?`
+  ).bind(now, tier2Row.id).run();
 
-  return new Response(JSON.stringify({ id: tier2Row.id, content: tier2Content }), {
+  // 6. 立即返回，后台异步生成（不阻塞响应）
+  context.waitUntil(generateTier2Async(tier1Report, tier2Row.id, env));
+
+  return new Response(JSON.stringify({ id: tier2Row.id, generationStatus: "processing" }), {
     headers: { "Content-Type": "application/json" },
   });
 };
 
-async function callDeepSeekTier2(tier1Report: Record<string, unknown>, env: Ctx["env"]): Promise<Record<string, unknown> | null> {
-  const apiKey = env.DEEPSEEK_API_KEY;
-  if (!apiKey) {
-    console.warn("[tier2/generate] DEEPSEEK_API_KEY not configured");
-    return null;
-  }
-
-  const prompt = `You are a professional beauty consultant. Based on the following face analysis report, provide detailed makeup and skincare recommendations for each dimension.
-
-Face Analysis Report:
-${JSON.stringify(tier1Report, null, 2)}
-
-Please output a JSON object with the following structure (strict JSON only, no markdown):
-{
-  "coreMakeup": "string - the core makeup style recommendation",
-  "reason": "string - why this style suits the user based on their features",
-  "style": "string - overall style tag (e.g. 清新自然, 高级冷艳)",
-  "keyAreas": ["string array - top 3-5 key makeup areas with specific advice for each"],
-  "formula": "string - step-by-step makeup formula combining all recommendations",
-  "productRecs": {
-    "faceShape": [{"name": "产品名", "desc": "简短推荐理由"}],
-    "skinType": [{"name": "产品名", "desc": "简短推荐理由"}],
-    "eyebrowShape": [{"name": "产品名", "desc": "简短推荐理由"}],
-    "eyeShape": [{"name": "产品名", "desc": "简短推荐理由"}],
-    "threeFiveRatio": [{"name": "产品名", "desc": "简短推荐理由"}],
-    "symmetry": [{"name": "产品名", "desc": "简短推荐理由"}]
-  }
-}
-
-- Each dimension in productRecs should have up to 2 product recommendations
-- name: specific product or product type name (in Chinese)
-- desc: one-sentence reason why it suits the user (in Chinese, 10-20 characters)
-- keyAreas must contain detailed advice for each of the 6 dimensions: face shape, skin type, eyebrow shape, eye shape, three courts five eyes, symmetry
-- Each keyArea item should follow format: "[Dimension name] specific advice content"
-- Be specific and actionable, not generic`;
-
+async function generateTier2Async(tier1Report: Record<string, unknown>, tier2Id: string, env: Ctx["env"]): Promise<void> {
   try {
-    const resp = await fetch("https://api.deepseek.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "deepseek-chat",
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 800,
-        temperature: 0.5,
-      }),
-      signal: AbortSignal.timeout(30000),
-    });
-
-    if (!resp.ok) {
-      const eb = await resp.text().catch(() => "");
-      console.error(`[tier2/generate] DeepSeek error ${resp.status}: ${eb.slice(0, 200)}`);
-      return null;
+    const tier2Content = await callDeepSeekTier2(tier1Report, env);
+    if (tier2Content) {
+      const now = Math.floor(Date.now() / 1000);
+      await env.DB.prepare(
+        `UPDATE reports_tier2 SET content = ?, generation_status = 'ready', updated_at = ? WHERE id = ?`
+      ).bind(JSON.stringify(tier2Content), now, tier2Id).run();
+      console.log(`[tier2/generate] Successfully generated for ${tier2Id}`);
+    } else {
+      const now = Math.floor(Date.now() / 1000);
+      await env.DB.prepare(
+        `UPDATE reports_tier2 SET generation_status = 'failed', updated_at = ? WHERE id = ?`
+      ).bind(now, tier2Id).run();
+      console.error(`[tier2/generate] Failed to generate for ${tier2Id}`);
     }
-
-    const data: any = await resp.json();
-    const raw = data?.choices?.[0]?.message?.content;
-    if (!raw) {
-      console.error("[tier2/generate] DeepSeek empty response");
-      return null;
-    }
-
-        const report = parseDeepseekJson(raw);
-    return report as Record<string, unknown>;
   } catch (e) {
-    console.error("[tier2/generate] DeepSeek exception:", e);
-    return null;
+    console.error(`[tier2/generate] Async exception for ${tier2Id}:`, e);
+    const now = Math.floor(Date.now() / 1000);
+    await env.DB.prepare(
+      `UPDATE reports_tier2 SET generation_status = 'failed', updated_at = ? WHERE id = ?`
+    ).bind(now, tier2Id).run();
   }
 }
+
 
 // wrangler v4 compatibility: alias for route discovery
 export const onRequestPost = async (...args) => {

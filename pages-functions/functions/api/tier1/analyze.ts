@@ -40,6 +40,12 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
       photoBase64 = await resizeBase64IfNeeded(photoBase64, 2048);
     }
   }
+  // 关键性兜底
+  if (photoBase64 && photoBase64.length > 1_500_000) {
+    console.warn(`[tier1/analyze] photoBase64 too large (${photoBase64.length} chars), forcing resize to 1024px`);
+    photoBase64 = await resizeBase64IfNeeded(photoBase64, 1024);
+    console.log(`[tier1/analyze] After forced resize: ${photoBase64.length} chars`);
+  }
 
   const now = Math.floor(Date.now() / 1000);
   const reportId = generateId();
@@ -78,7 +84,8 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
         textDesc = data?.choices?.[0]?.message?.content?.trim() ?? "";
         if (textDesc) console.log(`[tier1/analyze] Vision OK, desc len: ${textDesc.length}, preview: ${textDesc.slice(0, 80)}`);
       } else {
-        console.error("[tier1/analyze] DashScope vision error", resp.status);
+        console.error("[tier1/analyze] DashScope vision error", resp.status,
+          ` (photoBase64 length: ${photoBase64 ? photoBase64.length : 0}, status: ${resp.status})`);
       }
     }
   }

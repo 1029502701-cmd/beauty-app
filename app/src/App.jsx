@@ -1,7 +1,6 @@
 import { useState, useEffect, useContext } from 'react';
 import { AuthContext, AuthProvider } from './context/AuthContext.jsx';
 import Login from './pages/Login.jsx';
-import SetPassword from './pages/SetPassword.jsx';
 import Home from './pages/Home.jsx';
 import Capture from './pages/Capture.jsx';
 import Tier1Result from './pages/Tier1Result.jsx';
@@ -42,13 +41,6 @@ function Router() {
     window.history.replaceState(null, '', '/login');
   };
 
-  const handleSetPasswordDone = () => {
-    const from = sessionStorage.getItem('auth_redirect_from') || '/home';
-    sessionStorage.removeItem('auth_redirect_from');
-    setPage(from);
-    window.history.replaceState(null, '', from);
-  };
-
   useEffect(() => {
     if (!loading) {
       const path = window.location.pathname;
@@ -57,7 +49,7 @@ function Router() {
         sessionStorage.removeItem('auth_redirect_from');
         setPage(from);
         window.history.replaceState(null, '', from);
-      } else if (!token && path !== '/login') {
+      } else if (!token && path !== '/login' && path !== '/admin/login' && !path.startsWith('/admin')) {
         sessionStorage.setItem('auth_redirect_from', path);
         setPage('/login');
         window.history.replaceState(null, '', '/login');
@@ -76,7 +68,6 @@ function Router() {
 
   const renderPage = () => {
     if (page === '/login') return <Login onLogin={handleLogin} />;
-    if (page === '/set-password') return <SetPassword onSet={handleSetPasswordDone} />;
     return (
       <RequireAuth
         fallbackPath="/home"
@@ -89,7 +80,7 @@ function Router() {
         {page === '/capture' && <Capture />}
         {page === '/tier1-result' && <Tier1Result />}
         {page === '/tier2-result' && <Tier2Result />}
-        {page === '/report' && <ReportPage />}
+        {(page === '/report' || page.startsWith('/report/')) && <ReportPage />}
         {page === '/influencer-apply' && <InfluencerApply />}
       </RequireAuth>
     );

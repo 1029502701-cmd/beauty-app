@@ -1,100 +1,91 @@
-import { useState, useEffect, useRef, useContext, useCallback } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext.jsx';
 import { authApi } from '../api.js';
 
-function isWechatMiniProgram() {
-  return typeof wx !== 'undefined' && !!wx.miniProgram;
-}
-
 const PHONE_RE = /^1[3-9]\d{9}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isValidAccount(s) { return PHONE_RE.test(s) || EMAIL_RE.test(s); }
+function isValidPhone(s) { return PHONE_RE.test(s); }
 
 export default function Login({ onLogin }) {
-  const { login, setHasPassword } = useContext(AuthContext);
-  const [mode, setMode] = useState('sms');
+  const { login } = useContext(AuthContext);
+  const [tab, setTab] = useState('password');
+  const [smsEnabled, setSmsEnabled] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const [account, setAccount] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
-  const [password, setPassword] = useState('');
-  const [agreed, setAgreed] = useState(false);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [countdown, setCountdown] = useState(0);
-  const timerRef = useRef(null);
-
-  const showWechatLogin = isWechatMiniProgram();
+  const [codeSending, setCodeSending] = useState(false);
+  const [codeCountdown, setCodeCountdown] = useState(0);
 
   useEffect(() => {
-    return () => clearInterval(timerRef.current);
+    fetch('/api/config/sms_login_enabled')
+      .then(r => r.json())
+      .then(data => { if (data.value === 'true') setSmsEnabled(true); })
+      .catch(() => {});
   }, []);
 
-  const startCountdown = useCallback(() => {
-    clearInterval(timerRef.current);
-    setCountdown(60);
-    timerRef.current = setInterval(() => {
-      setCountdown((c) => {
-        if (c <= 1) { clearInterval(timerRef.current); return 0; }
-        return c - 1;
-      });
-    }, 1000);
-  }, []);
+  useEffect(() => {
+    if (codeCountdown <= 0) return;
+    const timer = setTimeout(() => setCodeCountdown(c => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [codeCountdown]);
+
+  const handlePasswordSubmit = async () => {
+    setError('');
+    if (!isValidAccount(account)) { setError('请输入正确的手机号或邮箱'); return; }
+    if (password.length < 6) { setError('密码至少6位'); return; }
+    if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) { setError('密码需同时包含字母和数字'); return; }
+    if (password !== confirmPassword) { setError('两次密码不一致'); return; }
+    setLoading(true);
+    try {
+      const data = await authApi.loginOrRegister(account, password, confirmPassword);
+      await login(data.sessionId);
+      onLogin?.(sessionStorage.getItem('auth_redirect_from') || null);
+      sessionStorage.removeItem('auth_redirect_from');
+    } catch (e) {
+      setError(e.message || '登录失败，请重试');
+    } finally { setLoading(false); }
+  };
 
   const handleSendCode = async () => {
     setError('');
-    if (!PHONE_RE.test(phone)) { setError('请输入正确的11位手机号'); return; }
+    if (!isValidPhone(phone)) { setError('请输入正确的手机号'); return; }
+    setCodeSending(true);
     try {
-      await authApi.sendCode(phone);
-      startCountdown();
+      await authApi.sendSmsCode(phone);
+      setCodeCountdown(60);
     } catch (e) {
       setError(e.message || '发送失败，请重试');
-    }
+    } finally { setCodeSending(false); }
   };
 
-  const handlePhoneLogin = async () => {
+  const handleSmsSubmit = async () => {
     setError('');
-    if (!PHONE_RE.test(phone)) { setError('请输入正确的11位手机号'); return; }
-    if (code.length !== 6) { setError('请输入6位验证码'); return; }
-    if (!agreed) { setError('请先阅读并同意用户协议和隐私政策'); return; }
+    if (!isValidPhone(phone)) { setError('请输入正确的手机号'); return; }
+    if (!code || code.length !== 6) { setError('请输入6位验证码'); return; }
     setLoading(true);
     try {
-      const data = await authApi.phoneLogin(phone, code);
+      const res = await fetch('/api/auth/phone/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, code }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '登录失败');
       await login(data.sessionId);
-      const hasPwd = !!data.hasPassword;
-      setHasPassword(hasPwd);
-      if (!hasPwd) {
-        window.location.pathname = '/set-password';
-        window.history.replaceState({}, '', '/set-password');
-        return;
-      }
       onLogin?.(sessionStorage.getItem('auth_redirect_from') || null);
       sessionStorage.removeItem('auth_redirect_from');
     } catch (e) {
-      if (e.message?.includes('验证码')) { setError('验证码错误，请重新输入'); }
-      else if (e.message?.includes('尚未设置')) { setError('该账号尚未设置密码，请切换至密码登录'); }
-      else { setError(e.message || '登录失败，请检查网络后重试'); }
+      setError(e.message || '登录失败，请重试');
     } finally { setLoading(false); }
   };
-
-  const handlePasswordLogin = async () => {
-    setError('');
-    if (!PHONE_RE.test(phone)) { setError('请输入正确的11位手机号'); return; }
-    if (password.length < 6) { setError('密码至少6位'); return; }
-    setLoading(true);
-    try {
-      const data = await authApi.loginPassword(phone, password);
-      await login(data.sessionId);
-      setHasPassword(true);
-      onLogin?.(sessionStorage.getItem('auth_redirect_from') || null);
-      sessionStorage.removeItem('auth_redirect_from');
-    } catch (e) {
-      if (e.message?.includes('尚未设置')) {
-        setError('该账号尚未设置密码，请使用验证码登录');
-      } else {
-        setError('手机号或密码错误');
-      }
-    } finally { setLoading(false); }
-  };
-
-  const canSubmitSms = phone.length === 11 && code.length === 6 && agreed && !loading;
-  const canSubmitPw = PHONE_RE.test(phone) && password.length >= 6 && !loading;
 
   return (
     <div className="login-page">
@@ -104,67 +95,52 @@ export default function Login({ onLogin }) {
         <p className="login-subtitle">发现你的专属美丽</p>
       </div>
 
-      <div className="login-tabs">
-        <button
-          className={"login-tab" + (mode === "sms" ? " login-tab--active" : "")}
-          onClick={() => { setMode("sms"); setError(""); }}
-        >验证码登录</button>
-        <button
-          className={"login-tab" + (mode === "password" ? " login-tab--active" : "")}
-          onClick={() => { setMode("password"); setError(""); }}
-        >密码登录</button>
-      </div>
+      {smsEnabled && (
+        <div className="login-tabs">
+          <button className={"login-tab" + (tab === "password" ? " login-tab--active" : "")} onClick={() => { setTab("password"); setError(""); }}>密码登录</button>
+          <button className={"login-tab" + (tab === "sms" ? " login-tab--active" : "")} onClick={() => { setTab("sms"); setError(""); }}>验证码登录</button>
+        </div>
+      )}
 
       <div className="login-form">
-        <div className="input-group">
-          <input type="tel" className="input-field" placeholder="请输入手机号" maxLength={11} value={phone} onChange={(e) => { setPhone(e.target.value.replace(/\D/g, "")); setError(""); }} />
-        </div>
-
-        {mode === "sms" ? (
+        {tab === "password" ? (
           <>
-            <div className="input-group input-group--code">
-              <input type="tel" className="input-field" placeholder="请输入验证码" maxLength={6} value={code} onChange={(e) => { setCode(e.target.value.replace(/\D/g, "")); setError(""); }} />
-              <button className="code-btn" disabled={countdown > 0} onClick={handleSendCode}>
-                {countdown > 0 ? countdown + "s" : "获取验证码"}
-              </button>
+            <div className="input-group">
+              <input type="text" className="input-field" placeholder="手机号 / 邮箱" value={account} onChange={(e) => { setAccount(e.target.value); setError(""); }} onKeyDown={(e) => { if (e.key === "Enter") handlePasswordSubmit(); }} />
             </div>
-            <label className="agree-label">
-              <input type="checkbox" checked={agreed} onChange={(e) => { setAgreed(e.target.checked); setError(""); }} />
-              <span>我已阅读并同意<a href="#">《用户协议》</a>和<a href="#">《隐私政策》</a></span>
-            </label>
-            <button className="login-btn" disabled={!canSubmitSms} onClick={handlePhoneLogin}>
-              {loading ? "登录中..." : "登录"}
-            </button>
+            <div className="input-group">
+              <input type="password" className="input-field" placeholder="请输入密码" value={password} onChange={(e) => { setPassword(e.target.value); setError(""); }} onKeyDown={(e) => { if (e.key === "Enter") handlePasswordSubmit(); }} />
+            </div>
+            <div className="input-group">
+              <input type="password" className="input-field" placeholder="请再次输入密码" value={confirmPassword} onChange={(e) => { setConfirmPassword(e.target.value); setError(""); }} onKeyDown={(e) => { if (e.key === "Enter") handlePasswordSubmit(); }} />
+            </div>
           </>
         ) : (
           <>
-            <div className="input-group">
-              <input type="password" className="input-field" placeholder="请输入密码" value={password} onChange={(e) => { setPassword(e.target.value); setError(""); }} />
+            <div className="input-group input-group--code">
+              <input type="text" className="input-field" placeholder="请输入手机号" value={phone} onChange={(e) => { setPhone(e.target.value); setError(""); }} maxLength={11} />
+              <button className="code-btn" disabled={codeSending || codeCountdown > 0} onClick={handleSendCode}>
+                {codeCountdown > 0 ? codeCountdown + "s" : "获取验证码"}
+              </button>
             </div>
-            <button className="login-btn" disabled={!canSubmitPw} onClick={handlePasswordLogin}>
-              {loading ? "登录中..." : "登录"}
-            </button>
+            <div className="input-group">
+              <input type="text" className="input-field" placeholder="请输入6位验证码" value={code} onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setError(""); }} maxLength={6} onKeyDown={(e) => { if (e.key === "Enter") handleSmsSubmit(); }} />
+            </div>
           </>
         )}
 
         {error && <p className="error-msg">{error}</p>}
-      </div>
 
-      <div className="login-divider"><span>或</span></div>
-      {showWechatLogin && (
-        <button className="wechat-btn" disabled={loading} onClick={async () => {
-          setError(""); setLoading(true);
-          try {
-            const wxCode = await new Promise((resolve) => { wx.miniProgram.getAuthCode({ success: (res) => resolve(res.code) }); });
-            const data = await authApi.wechatLogin(wxCode);
-            await login(data.sessionId);
-            setHasPassword(true);
-            onLogin?.(sessionStorage.getItem("auth_redirect_from") || null);
-            sessionStorage.removeItem("auth_redirect_from");
-          } catch (e) { setError(e.message || "微信登录失败"); }
-          finally { setLoading(false); }
-        }}>微信一键登录</button>
-      )}
+        {tab === "password" ? (
+          <button className="login-btn" disabled={loading || !isValidAccount(account) || password.length < 6 || password !== confirmPassword} onClick={handlePasswordSubmit}>
+            {loading ? "登录中..." : "登录 / 注册"}
+          </button>
+        ) : (
+          <button className="login-btn" disabled={loading || !isValidPhone(phone) || code.length !== 6} onClick={handleSmsSubmit}>
+            {loading ? "登录中..." : "登录"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
