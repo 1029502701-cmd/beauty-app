@@ -1,6 +1,7 @@
 import { useState, useEffect, useContext, useCallback, useRef } from 'react';
 import { AuthContext } from '../context/AuthContext.jsx';
 import RequireAuth from '../router/RequireAuth.jsx';
+import Tier2Result from './Tier2Result.jsx';
 import { getCompliment } from './complimentMap.js';
 import { BASE } from '../api.js';
 import { removeStorageItem, STORAGE_KEYS } from '../utils/storage.js';
@@ -14,14 +15,8 @@ const RESULT_ITEMS = [
   { key: 'symmetry',         label: '五官对称度',   icon: '⚖', placeholder: '待分析' },
 ];
 
-const STYLE_EMOJIS = ['💄', '✨', '🌸', '💎'];
 const AD_DURATION_SEC = 5;
 
-const MOCK_INFLUENCERS = [
-  { id: 1, name: '林小美妆', fans: '238万', style: '清透日常妆', avatar: '👩', desc: '擅长根据脸型定制妆容，分享超多平价好物' },
-  { id: 2, name: '化妆师Amy', fans: '156万', style: '高级晚宴妆', avatar: '💁‍♀️', desc: '专业舞台化妆师，揭秘明星同款妆容技巧' },
-  { id: 3, name: '甜美妆娘', fans: '312万', style: '元气少女风', avatar: '🧚‍♀️', desc: '学生党必备，百元内打造精致妆感' },
-];
 
 const TIER3_QUESTIONS = [
   { key: 'makeupStyle', title: '今天想要哪种感觉？' },
@@ -184,9 +179,9 @@ export default function ReportPage() {
   const [shareDone, setShareDone] = useState(false);
   const [adUnlockLoading, setAdUnlockLoading] = useState(false);
   const [shareDailyLimitExceeded, setShareDailyLimitExceeded] = useState(false);
-  const [expandedDims, setExpandedDims] = useState({});
   const [reportValid, setReportValid] = useState(null); // null = not checked yet
-
+  const tier2TimerRef = useRef(null); // track polling interval to prevent multiple simultaneous timers
+  const [btnColor, setBtnColor] = useState("#000000");
   // Tier3 state
   const [tier3TokenStatus, setTier3TokenStatus] = useState(null);
   const [tier3QuestionnaireOptions, setTier3QuestionnaireOptions] = useState(null);
@@ -257,37 +252,79 @@ export default function ReportPage() {
           }
         }
       } catch {
-        if (!cancelled) setTier2Generation({ generationStatus: 'not_found' });
+        if (!cancelled) {
+          setTier2Generation({ generationStatus: 'not_found' });
+          setTier2Status({ generationStatus: 'not_found' });
+        }
       }
     })();
     return () => { cancelled = true; };
   }, [reportId, token]);
 
-  // Poll for tier2 generation completion
+  // Use a ref for generation state so the interval callback always reads current values.
+  // Only depend on [reportId, token] so the interval is created once and never restarted.
+  const tier2GenerationRef = useRef(tier2Generation);
+  useEffect(() => { tier2GenerationRef.current = tier2Generation; }, [tier2Generation]);
+
   useEffect(() => {
     if (tier2Generation?.generationStatus !== 'processing') return;
     setTier2Processing(true);
+    let aborted = false;
     const interval = setInterval(async () => {
-      if (!reportId || !tier2Generation?.tier2ReportId) return;
+      if (aborted) return;
+      const gen = tier2GenerationRef.current;
+      if (!reportId || !gen?.tier2ReportId) return;
       try {
-        const res = await fetch(BASE + '/tier2/status?tier2Id=' + encodeURIComponent(tier2Generation.tier2ReportId), {
+        const res = await fetch(BASE + '/tier2/status?tier2Id=' + encodeURIComponent(gen.tier2ReportId), {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) throw new Error('请求失败: ' + res.status);
         const data = await res.json();
+        if (aborted) return;
         setTier2Generation(data);
-        if (data.generationStatus === 'ready' || data.generationStatus === 'failed') {
+        setTier2Status(data);
+        if (data.generationStatus === 'ready') {
+          aborted = true;
           setTier2Processing(false);
           clearInterval(interval);
+          tier2TimerRef.current = null;
+          if (data.content) {
+            setTier2Content(data.content);
+          }
+        } else if (data.generationStatus === 'failed') {
+          aborted = true;
+          setTier2Processing(false);
+          clearInterval(interval);
+          tier2TimerRef.current = null;
         }
       } catch {
         // keep polling on transient errors
       }
     }, 2000);
-    return () => { clearInterval(interval); setTier2Processing(false); };
-  }, [tier2Generation?.generationStatus, tier2Generation?.tier2ReportId, reportId, token]);
+    tier2TimerRef.current = interval;
+    return () => {
+      aborted = true;
+      if (tier2TimerRef.current) {
+        clearInterval(tier2TimerRef.current);
+        tier2TimerRef.current = null;
+      }
+      setTier2Processing(false);
+    };
+  }, [reportId, token, tier2Generation]);
 
-// Load tier3 token status and questionnaire options when tab is active
+
+  // Fetch tier2_btn_color from admin config on mount
+  useEffect(() => {
+    let cancelled = false;
+    fetch(BASE + '/config/tier2_btn_color')
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (!cancelled && data?.value) setBtnColor(data.value);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     if (!token) return;
     if (activeTab !== '专属') return;
@@ -619,7 +656,6 @@ export default function ReportPage() {
       setAdUnlockLoading(false);
     }
   }, [reportId, token]);
-  const toggleDim = (dim) => setExpandedDims((prev) => ({ ...prev, [dim]: !prev[dim] }));
 
   const initReport = tier1Report;
   const resolvedResults = RESULT_ITEMS.map((item) => {
@@ -631,8 +667,6 @@ export default function ReportPage() {
   const highlightText = initReport?.highlight ?? '发现你的独特之美';
 
   const t2 = tier2Content;
-  const dimOrder = ['faceShape', 'skinType', 'eyebrowShape', 'eyeShape', 'threeFiveRatio', 'symmetry'];
-  const dimLabels = { faceShape: '脸型', skinType: '肤质', eyebrowShape: '眉形', eyeShape: '眼型', threeFiveRatio: '三庭五眼', symmetry: '五官对称度' };
 
   return (
     <RequireAuth fallbackPath="/home">
@@ -757,6 +791,7 @@ export default function ReportPage() {
                 <p>生成失败，请稍后重试</p>
                 <button onClick={() => {
                   setTier2Generation(null);
+                  setTier2Status(null);
                   setTier2Content(null);
                   setTier2LoadError(null);
                 }}>重试</button>
@@ -765,88 +800,7 @@ export default function ReportPage() {
               <div className="report-loading"><div className="report-loading-spinner" /><p>AI 正在生成进阶报告，请稍候…</p></div>
             ) : !t2 ? <div className="report-loading">正在生成进阶报告...</div> : (
               <>
-                <div className="report-section">
-                  <h2 className="report-section-title">核心建议</h2>
-                  <div className="report-core-card"><p className="report-core-text">{t2.coreMakeup || '暂无内容'}</p></div>
-                </div>
-                <div className="report-section">
-                  <h2 className="report-section-title">风格定位</h2>
-                  <span className="report-style-badge">{STYLE_EMOJIS[0]} {t2.style || '清新自然'}</span>
-                  {t2.reason && <p className="report-reason">{t2.reason}</p>}
-                </div>
-                <div className="report-section">
-                  <h2 className="report-section-title">关键部位建议</h2>
-                  <div className="report-key-areas">
-                    {Array.isArray(t2.keyAreas) && t2.keyAreas.map((area, i) => (
-                      <div key={i} className="report-area-item">
-                        <span className="report-area-num">{i + 1}</span>
-                        <p className="report-area-text">{area}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                {t2.productRecs && typeof t2.productRecs === 'object' && Object.keys(t2.productRecs).length > 0 && (
-                  <div className="report-section">
-                    <h2 className="report-section-title">推荐产品</h2>
-                    {dimOrder.map((dim) => {
-                      const recs = t2.productRecs[dim];
-                      if (!recs || !Array.isArray(recs) || recs.length === 0) return null;
-                      const isExpanded = expandedDims[dim];
-                      return (
-                        <div key={dim} className="report-dim-recs">
-                          <button className="report-dim-header" onClick={() => toggleDim(dim)}>
-                            <span className="report-dim-label">{dimLabels[dim] || dim}</span>
-                            <span className="report-dim-arrow">{isExpanded ? '▲' : '▼'}</span>
-                          </button>
-                          {isExpanded && (
-                            <div className="report-dim-products">
-                              {recs.slice(0, 2).map((rec, i) => {
-                                const hasMedia = rec.imageUrl || rec.price;
-                                return (
-                                  <a
-                                    key={i}
-                                    href={rec.itemUrl || undefined}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className={"report-product-card" + (hasMedia ? " report-product-card--rich" : "")}
-                                    onClick={(e) => { if (!rec.itemUrl) e.preventDefault(); }}
-                                  >
-                                    {hasMedia && rec.imageUrl ? (
-                                      <img
-                                        src={rec.imageUrl}
-                                        alt={rec.name || ""}
-                                        className="report-product-img"
-                                        referrerPolicy="no-referrer"
-                                        loading="lazy"
-                                        onError={(e) => { e.target.style.display = "none"; }}
-                                      />
-                                    ) : null}
-                                    <div className="report-product-info">
-                                      <span className="report-product-name">{rec.name || rec}</span>
-                                      {rec.price ? (
-                                        <span className="report-product-price">¥{rec.price}</span>
-                                      ) : null}
-                                      {rec.brandName ? (
-                                        <span className="report-product-brand">{rec.brandName}</span>
-                                      ) : null}
-                                      <span className="report-product-desc">{rec.desc || ""}</span>
-                                    </div>
-                                  </a>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                {t2.formula && (
-                  <div className="report-section">
-                    <h2 className="report-section-title">完整妆效配方</h2>
-                    <div className="report-formula-card"><p className="report-formula-text">{t2.formula}</p></div>
-                  </div>
-                )}
+                <Tier2Result content={t2} isMock={!tier2Content} btnStyle={{background: btnColor}} onUnlockImage={handleAdFinish} />
                 <div className="report-section">
                   <h2 className="report-section-title">AI 妆效效果图</h2>
                   {!showAd && !imgUnlockLoading && imgResult === null && (
@@ -878,27 +832,6 @@ export default function ReportPage() {
                       )}
                     </div>
                   )}
-                </div>
-                <div className="report-section">
-                  <h2 className="report-section-title">达人推荐</h2>
-                  <div className="report-influencers">
-                    {MOCK_INFLUENCERS.map((inf) => (
-                      <div key={inf.id} className="report-influencer-card">
-                        <div className="report-influencer-avatar">
-                          <div style={{ width: '48px', aspectRatio: '3/4', borderRadius: '8px', overflow: 'hidden', flexShrink: 0, background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', lineHeight: 1 }}>
-                            <img src={inf.avatar_url} alt={inf.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', borderRadius: '8px', background: '#f3f4f6' }} onError={(e) => { e.target.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }} />
-                            <span style={{ display: 'none', fontSize: '20px' }}>{inf.avatar}</span>
-                          </div>
-                        </div>
-                        <div className="report-influencer-info">
-                          <span className="report-influencer-name">{inf.name}</span>
-                          <span className="report-influencer-fans">{inf.fans}粉丝</span>
-                          <span className="report-influencer-style">{inf.style}</span>
-                        </div>
-                        <p className="report-influencer-desc">{inf.desc}</p>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               </>
             )}
@@ -1024,5 +957,6 @@ export default function ReportPage() {
     </RequireAuth>
   );
 }
+
 
 

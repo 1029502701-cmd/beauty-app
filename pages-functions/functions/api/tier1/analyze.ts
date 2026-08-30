@@ -1,10 +1,10 @@
 import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
-import { requireAuth, generateId, beijingDate , parseDeepseekJson } from "../../_utils";
+import { requireAuth, generateId, beijingDate, parseDeepseekJson } from "../../_utils";
 import { resizeBase64IfNeeded } from "../../_image_utils";
 import type { Ctx } from "../../_utils";
 
 // POST /api/tier1/analyze
-// 接收用户上传的正面照片，调用 DashScope Qwen-VL 分析面部特征，再用 DeepSeek 生成结构化报告
+// 接收用户上传的正面照片，先校验人脸数量，再调用 DashScope Qwen-VL 分析面部特征，再用 DeepSeek 生成结构化报告
 export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
   const { request, env } = context;
   const authUser = await requireAuth(request, env);
@@ -66,6 +66,65 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
       facePhotoKey = null;
     }
   }
+
+  // ===== 新增：人脸数量前置校验 =====
+  // 用 qwen-vl-max 快速判断图片中人脸数量，只有恰好1张才允许进入详细分析
+  // 此步骤不消耗每日分析次数额度
+  let faceCount = -1;
+  if (photoBase64) {
+    const apiKey = env.DASHSCOPE_API_KEY;
+    if (apiKey) {
+      const faceCheckPrompt = `Count the number of clearly visible human faces in this image. Reply with ONLY a single integer (e.g. 0, 1, 2, 3...). Do not write any other text.`;
+      try {
+        const faceCheckResp = await fetch("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model: "qwen-vl-max",
+            messages: [{ role: "user", content: [{ type: "text", text: faceCheckPrompt }, { type: "image_url", image_url: { url: photoBase64 } }] }],
+            max_tokens: 10,
+            temperature: 0,
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (faceCheckResp.ok) {
+          const faceData: any = await faceCheckResp.json();
+          const faceText = faceData?.choices?.[0]?.message?.content?.trim() ?? "";
+          const parsed = parseInt(faceText, 10);
+          if (!isNaN(parsed) && parsed >= 0) {
+            faceCount = parsed;
+            console.log(`[tier1/analyze] Face count check: ${faceCount} face(s) detected`);
+          } else {
+            console.warn(`[tier1/analyze] Face count parse failed, got: "${faceText}", defaulting to -1`);
+          }
+        } else {
+          console.warn(`[tier1/analyze] Face count check API error ${faceCheckResp.status}, skipping validation`);
+        }
+      } catch (e) {
+        console.warn("[tier1/analyze] Face count check timeout/error, continuing without validation:", e);
+      }
+    }
+  }
+
+  // 人脸数量不合法 → 拦截，不进入分析流程，不消耗每日次数
+  if (faceCount === 0) {
+    return new Response(
+      JSON.stringify({ error: "no_face_detected", message: "未检测到人脸，请上传清晰的正脸照片" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+  if (faceCount >= 2) {
+    return new Response(
+      JSON.stringify({ error: "multiple_faces", message: "检测到多张人脸，请上传仅包含您本人的照片" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+  // faceCount === -1 表示校验步骤失败，降级继续分析（保守策略）
+  // faceCount === 1 表示通过校验，继续正常流程
+  if (faceCount === 1) {
+    console.log("[tier1/analyze] Face count validated: exactly 1 face, proceeding to analysis");
+  }
+  // ===== 人脸校验结束 =====
 
   // 调用 vision model 分析面部特征
   let textDesc = "";

@@ -63,11 +63,6 @@ export default function Home({ onLogout }) {
 
   return (
     <div className="home-page">
-      <div className="home-header">
-        <div className="home-avatar" />
-        <span className="home-greeting">你好</span>
-      </div>
-
       <div className="home-product-grid">
         {PRODUCTS.map((p) => (
           <button

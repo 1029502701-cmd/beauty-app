@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useRef } from 'react';
 import { AuthContext, AuthProvider } from './context/AuthContext.jsx';
 import Login from './pages/Login.jsx';
 import Home from './pages/Home.jsx';
@@ -16,7 +16,8 @@ function Router() {
   const { token, loading, logout } = useContext(AuthContext);
   const [page, setPage] = useState(() => {
     const saved = sessionStorage.getItem('auth_redirect_from');
-    return saved || window.location.pathname || '/home';
+    const path = window.location.pathname;
+    return saved || (path === '/' ? '' : path) || '/login';
   });
   useEffect(() => {
     const onPopState = () => {
@@ -27,9 +28,13 @@ function Router() {
     return () => window.removeEventListener('popstate', onPopState);
   }, [page]);
 
+  // Track the last redirect target set by handleLogin to avoid race conditions
+  const loginRedirectTargetRef = useRef(null);
+
   const handleLogin = (redirectFrom) => {
-    sessionStorage.removeItem('auth_redirect_from');
     const target = redirectFrom || '/home';
+    loginRedirectTargetRef.current = target;
+    sessionStorage.removeItem('auth_redirect_from');
     setPage(target);
     window.history.replaceState(null, '', target);
   };
@@ -37,6 +42,7 @@ function Router() {
   const handleLogout = async () => {
     await logout();
     sessionStorage.removeItem('auth_redirect_from');
+    loginRedirectTargetRef.current = null;
     setPage('/login');
     window.history.replaceState(null, '', '/login');
   };
@@ -44,18 +50,23 @@ function Router() {
   useEffect(() => {
     if (!loading) {
       const path = window.location.pathname;
-      if (token && path === '/login') {
-        const from = sessionStorage.getItem('auth_redirect_from') || '/home';
-        sessionStorage.removeItem('auth_redirect_from');
-        setPage(from);
-        window.history.replaceState(null, '', from);
-      } else if (!token && path !== '/login' && path !== '/admin/login' && !path.startsWith('/admin')) {
-        sessionStorage.setItem('auth_redirect_from', path);
+      const effectivePath = path === '/' ? '' : path;
+      // Unauthenticated: redirect to /login (also normalize / -> /login)
+      if (!token && effectivePath !== '/login' && effectivePath !== '/admin/login' && !effectivePath.startsWith('/admin')) {
+        sessionStorage.setItem('auth_redirect_from', effectivePath || '/');
         setPage('/login');
         window.history.replaceState(null, '', '/login');
-      } else if (token && path !== '/login' && path !== page) {
-        setPage(path);
-      } else if (!token && path === '/login' && page !== '/login') {
+      }
+      // Authenticated: redirect root / to /home
+      else if (token && (effectivePath === '' || effectivePath === '/')) {
+        setPage('/home');
+        window.history.replaceState(null, '', '/home');
+      }
+      else if (token && effectivePath !== '/login' && effectivePath !== page && !loginRedirectTargetRef.current) {
+        // Sync URL on direct navigation while authenticated (e.g. refresh)
+        setPage(effectivePath);
+      }
+      else if (!token && effectivePath === '/login' && page !== '/login') {
         setPage('/login');
       }
     }
@@ -65,6 +76,9 @@ function Router() {
 
   if (page === '/admin/login') return <AdminLogin />;
   if (page === '/admin/dashboard') return <AdminRequireAuth><AdminDashboard /></AdminRequireAuth>;
+
+  // Authenticated users landing on root /
+  if (token && (page === '' || page === '/')) return <Home onLogout={handleLogout} />;
 
   const renderPage = () => {
     if (page === '/login') return <Login onLogin={handleLogin} />;

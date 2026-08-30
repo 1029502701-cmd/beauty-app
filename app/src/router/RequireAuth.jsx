@@ -24,18 +24,20 @@ export default function RequireAuth({ children, fallbackPath = '/home', onNaviga
     }
   }, [forceRedirect, onNavigate]);
 
+  // 无 token 时跳转登录页（必须在条件外，遵守 Rules of Hooks）
+  useEffect(() => {
+    if (!token && onNavigate && window.location.pathname !== '/login' && !hasNavigatedRef.current) {
+      hasNavigatedRef.current = true;
+      sessionStorage.setItem('auth_redirect_from', window.location.pathname);
+      onNavigate('/login');
+    }
+  }, [token, onNavigate]);
+
   if (loading || validating) {
     return <div className="loading">加载中...</div>;
   }
 
   if (!token) {
-    useEffect(() => {
-      if (onNavigate && window.location.pathname !== '/login' && !hasNavigatedRef.current) {
-        hasNavigatedRef.current = true;
-        sessionStorage.setItem('auth_redirect_from', window.location.pathname);
-        onNavigate('/login');
-      }
-    }, [token, onNavigate]);
     return null;
   }
 

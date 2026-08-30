@@ -79,7 +79,7 @@ async function callAnalyze(base64, token, signal) {
     body: form,
     signal,
   });
-  if (!res.ok) throw new Error(`请求失败: ${res.status}`);
+  if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.message || err.error || `请求失败: ${res.status}`); }
   return res.json();
 }
 
@@ -176,7 +176,7 @@ export default function Capture() {
       const res = await fetch(BASE + '/reports/mine', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error(`请求失败: ${res.status}`);
+      if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.message || err.error || `请求失败: ${res.status}`); }
       const data = await res.json();
       setArchiveReports(data.reports || []);
     } catch (e) {

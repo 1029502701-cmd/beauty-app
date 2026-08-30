@@ -132,12 +132,21 @@
 .t2-card-corner{position:absolute;top:0;left:0;width:50%;height:33%;pointer-events:none;z-index:1}
 .t2-card-corner::before{content:'';position:absolute;top:0;left:0;width:100%;height:3px;background:linear-gradient(90deg,#111827 0%,transparent 100%);box-shadow:0 2px 6px rgba(0,0,0,.15)}
 .t2-card-corner::after{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:linear-gradient(180deg,#111827 0%,transparent 100%);box-shadow:2px 0 6px rgba(0,0,0,.15)}
-.t2-card--hero{background:linear-gradient(135deg,#fdf2f8 0%,#fff 100%);border-color:#fbcfe8}
-.t2-hero-content{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;padding-top:8px}
-.t2-hero-emoji{font-size:36px}
-.t2-hero-title{font-size:20px;font-weight:700;color:#111827;margin:0}
-.t2-hero-reason{font-size:14px;color:#4b5563;line-height:1.7;margin:0;text-align:left;width:100%}
-.t2-style-tag{display:inline-block;padding:4px 12px;background:#fdf2f8;border:1px solid #fbcfe8;border-radius:16px;font-size:12px;color:#db2777}
+/* ── Hero report card (redesigned) ── */
+.t2-card--hero{background:linear-gradient(135deg,#fdf2f8 0%,#fff8f6 50%,#fff 100%);border-color:#f0d9e8;padding:20px 18px}
+.t2-hero-top{display:flex;align-items:flex-start;gap:14px;margin-bottom:16px;position:relative}
+.t2-hero-portrait{width:88px;height:110px;object-fit:cover;border-radius:14px;flex-shrink:0;box-shadow:0 4px 14px rgba(180,80,120,.18)}
+.t2-hero-right{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;text-align:center;gap:5px}
+.t2-hero-badge{font-size:10px;color:#c08aaa;letter-spacing:1.5px;text-transform:uppercase;font-weight:500}
+.t2-hero-main-title{font-size:30px;font-weight:800;color:#3d1f2e;margin:0;line-height:1.2;letter-spacing:.5px}
+.t2-hero-subtitle{font-size:13px;color:#8a6070;margin:0;display:flex;align-items:center;gap:6px;font-weight:500;justify-content:center}
+.t2-hero-line{color:#d4a0b0;font-size:14px}
+
+.t2-hero-decode{border-top:1px solid #f5d8e4;padding-top:14px}
+.t2-hero-decode-label{font-size:12px;font-weight:700;color:#8a5068;margin:0 0 7px;letter-spacing:.5px}
+.t2-hero-decode-text{font-size:13px;color:#6b5060;line-height:1.75;margin:0 0 10px}
+.t2-hero-keywords{display:flex;flex-wrap:wrap;gap:6px}
+.t2-hero-kw{font-size:11px;padding:3px 10px;background:#fdf2f8;border:1px solid #fbcfe8;border-radius:20px;color:#b06080;font-weight:500}
 .t2-section-title{font-size:15px;font-weight:600;color:#111827;margin:0 0 12px}
 .t2-ai-cta{display:flex;flex-direction:column;align-items:center;gap:8px;padding:20px 0}
 .t2-ai-hint{font-size:12px;color:#9ca3af;margin:0}
@@ -203,3 +212,24 @@
 .t2-modal-close{position:absolute;top:12px;right:12px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:50%;width:28px;height:28px;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#6b7280}
 .t2-modal-close:hover{background:#e5e7eb}
 .t2-modal-title{font-size:15px;font-weight:600;color:#111827;margin:0 0 12px 0;padding-right:36px}
+/* ── Tier2 step cards (01-06 makeup routine) — new visual style ── */
+.t2-page{display:flex;flex-direction:column;gap:12px;padding:16px 16px 40px;max-width:480px;margin:0 auto;min-height:100svh;background:#faf5f0;box-sizing:border-box}
+.t2-step-card{display:flex;flex-direction:column;gap:0;background:#fff;border:1px solid #f0d9e8;border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(180,80,120,.06)}
+
+.t2-step-card{display:flex;flex-direction:column;gap:0;background:#fff;border:1px solid #f0d9e8;border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(180,80,120,.06);padding:16px}
+.t2-step-title-row{display:flex;align-items:center;gap:6px;margin-bottom:10px}
+.t2-step-title{font-size:15px;font-weight:700;color:#1a1a1a;margin:0;flex:1;letter-spacing:.3px}
+.t2-step-section{margin-bottom:8px}
+.t2-step-section:last-child{margin-bottom:0}
+.t2-step-section-label{font-size:10px;font-weight:600;color:#b0607a;margin:0 0 3px;text-transform:uppercase;letter-spacing:.6px}
+.t2-step-section-text{font-size:12px;color:#555;line-height:1.65;margin:0}
+.t2-step-why .t2-step-section-label{color:#2563eb}
+.t2-step-why .t2-step-section-text{color:#1e40af}
+.t2-step-detail .t2-step-section-label{color:#8a6070}
+.t2-step-detail-text{font-size:11px;color:#6b5060;line-height:1.7;margin:0;font-style:italic}
+.t2-step-tips-label{display:flex;align-items:center;gap:3px;font-size:10px;font-weight:700;color:#b0607a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.t2-tips-icon{font-size:11px}
+.t2-step-tips-bullets{display:flex;flex-direction:column;gap:4px}
+.t2-tips-bullet{font-size:10px;color:#888;line-height:1.55}
+
+

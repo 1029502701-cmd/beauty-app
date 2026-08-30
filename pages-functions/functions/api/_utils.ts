@@ -1,4 +1,4 @@
-// Inline Platform type (replaces broken import from functions/worker)
+﻿// Inline Platform type (replaces broken import from functions/worker)
 
 // Session key prefix in KV
 export const SESSION_PREFIX = "session:";
@@ -212,34 +212,54 @@ export async function callDeepSeekTier2(
     console.warn(loggerPrefix + " DEEPSEEK_API_KEY not configured");
     return null;
   }
-  const prompt = `You are a professional beauty consultant. Based on the following face analysis report, provide detailed makeup and skincare recommendations.
+  const prompt = `You are a professional beauty consultant. Based on the following face analysis report, provide detailed personalized recommendations for each of the 6 makeup steps.
 
 Face Analysis Report:
 ${JSON.stringify(tier1Report, null, 2)}
 
-Output strict JSON only (no markdown):
+Rules for each step:
+- Step 01 (base makeup): based on skinType (skin condition)
+- Step 02 (eyebrows): based on eyebrowShape
+- Step 03 (eye makeup): combine eyeShape + threeFiveRatio
+- Step 04 (blush): based on symmetry
+- Step 05 (contour): based on faceShape
+- Step 06 (lip): combine personaTags + highlight to infer skin tone & lip shape recommendations
+
+Output strict JSON only (no markdown wrapping):
 {
-  "coreMakeup": "core makeup recommendation",
-  "reason": "why this style suits the user",
-  "style": "style tag",
-  "keyAreas": ["key area 1 advice", "key area 2 advice", "key area 3 advice", "key area 4 advice", "key area 5 advice", "key area 6 advice"],
-  "formula": "complete makeup formula",
+  "coreConclusion": "1-2 sentence overall style conclusion in Chinese",
+  "style": "style tag like 温柔知性风",
+  "steps": [
+    {"step":"01","label":"底妆","key":"skinType","emoji":"🧴","analysis":"<personalized analysis for THIS user>","why":"<why this approach fits>","steps":"<step-by-step instructions separated by arrows>","tips":"<warnings separated by semicolons>","products":[{"name":"product name","desc":"reason","price":"price"}]},
+    {"step":"02","label":"眉形","key":"eyebrowShape","emoji":"✏️","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]},
+    {"step":"03","label":"眼妆","key":"eyeShape","emoji":"👁","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]},
+    {"step":"04","label":"腮红","key":"symmetry","emoji":"🌸","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]},
+    {"step":"05","label":"修容","key":"faceShape","emoji":"🪞","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]},
+    {"step":"06","label":"唇妆","key":"lip","emoji":"💄","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]}
+  ],
+  "overallTips": "1-2 sentence summary in Chinese",
   "productRecs": {
-    "faceShape": [{"name": "product", "desc": "reason"}],
-    "skinType": [{"name": "product", "desc": "reason"}],
-    "eyebrowShape": [{"name": "product", "desc": "reason"}],
-    "eyeShape": [{"name": "product", "desc": "reason"}],
-    "threeFiveRatio": [{"name": "product", "desc": "reason"}],
-    "symmetry": [{"name": "product", "desc": "reason"}]
+    "skinType": [{"name":"product name","desc":"reason"}],
+    "eyebrowShape": [{"name":"product name","desc":"reason"}],
+    "eyeShape": [{"name":"product name","desc":"reason"}],
+    "symmetry": [{"name":"product name","desc":"reason"}],
+    "faceShape": [{"name":"product name","desc":"reason"}],
+    "lip": [{"name":"product name","desc":"reason"}]
   }
-}`;
+}
+
+Important:
+1. Every step must be personalized to THIS specific user - reference their actual features
+2. Use '你是X' format in analysis (e.g. '你是圆脸' not '圆脸适合')
+3. Separate tips with Chinese semicolons (;)
+4. Recommend specific real products suitable for this user`;
   async function doCall(retryCount: number): Promise<Record<string, unknown> | null> {
     try {
       const resp = await fetch("https://api.deepseek.com/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: "deepseek-chat", messages: [{ role: "user", content: prompt }], max_tokens: 4000, temperature: 0.3 }),
-        signal: AbortSignal.timeout(60000),
+        body: JSON.stringify({ model: "deepseek-chat", messages: [{ role: "user", content: prompt }], max_tokens: 8000, temperature: 0.3 }),
+        signal: AbortSignal.timeout(90000),
       });
       if (!resp.ok) {
         const eb = await resp.text().catch(() => "");
@@ -259,3 +279,4 @@ Output strict JSON only (no markdown):
   }
   return doCall(0);
 }
+
