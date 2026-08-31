@@ -1,0 +1,5 @@
+INSERT INTO reports_tier2 (id, user_id, content, generation_status, source_tier1_report_id, created_at) VALUES ('tier2-test-a', 'd9cb216b-cee1-4235-9e29-5ed9b2c8758a', '{}', 'pending', 't1-001', 1787749000);
+INSERT INTO reports_tier2 (id, user_id, content, generation_status, source_tier1_report_id, created_at) VALUES ('tier2-test-b', '68cf87db-96a1-44fe-ad28-c71db789acb8', '{}', 'pending', 't1-002', 1787749001);
+INSERT INTO reports_tier2 (id, user_id, content, generation_status, source_tier1_report_id, created_at) VALUES ('tier2-test-c', 'cc37e1ff-143d-467e-a894-90fb5f93daec', '{}', 'pending', 't1-003', 1787749002);
+INSERT INTO reports_tier2 (id, user_id, content, generation_status, source_tier1_report_id, created_at) VALUES ('tier2-test-d', 'b3f91dbc-c7a4-4f9d-9976-39cee70b283a', '{}', 'pending', 't1-004', 1787749003);
+INSERT INTO reports_tier2 (id, user_id, content, generation_status, source_tier1_report_id, created_at) VALUES ('tier2-test-e', 'bdb57c5a-06ea-482a-bf87-9d16fdc4f973', '{}', 'pending', 't1-005', 1787749004);

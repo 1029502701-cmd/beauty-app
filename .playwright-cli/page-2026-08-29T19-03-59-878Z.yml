@@ -1,0 +1,85 @@
+- generic [ref=e17]:
+  - button "← 返回" [ref=e18] [cursor=pointer]
+  - generic [ref=e20]:
+    - generic [ref=e21]: ✨
+    - heading "你的专属妆容报告" [level=1] [ref=e22]
+    - generic [ref=e23]: 温柔知性风
+    - paragraph [ref=e24]: 适合温柔知性风，整体妆容应以自然清透为主，突出五官的协调感。
+  - generic [ref=e25]: ⚡ 静态预览模式（使用模拟数据）
+  - generic [ref=e26]:
+    - generic [ref=e27]:
+      - generic [ref=e28]: "01"
+      - heading "底妆" [level=2] [ref=e29]
+      - button "💡" [ref=e30] [cursor=pointer]
+    - generic [ref=e31]:
+      - generic [ref=e32]: 💄 个性化建议
+      - paragraph [ref=e33]: 你是混合肌，T区偏油、两颊偏干。建议选择轻薄持妆型粉底液，T区局部定妆，两颊保持水润感。妆前做好分区护理，底妆会更服帖自然。
+    - generic [ref=e34]:
+      - generic [ref=e35]: ⚠️ 避雷提示
+      - paragraph [ref=e36]: 避开厚重粉底，避免卡粉斑驳；定妆喷雾比散粉更适合混合肌。
+  - generic [ref=e37]:
+    - generic [ref=e38]:
+      - generic [ref=e39]: "02"
+      - heading "眉形" [level=2] [ref=e40]
+      - button "💡" [ref=e41] [cursor=pointer]
+    - generic [ref=e42]:
+      - generic [ref=e43]: 💄 个性化建议
+      - paragraph [ref=e44]: 你是一字眉，眉形平直柔和，适合打造自然温婉的妆容。建议保持眉形干净，适当修剪杂毛，保留自然的眉峰弧度更显立体。
+    - generic [ref=e45]:
+      - generic [ref=e46]: ⚠️ 避雷提示
+      - paragraph [ref=e47]: 避免过粗平眉，会显呆板；眉尾略高于眉头更显精神。
+  - generic [ref=e48]:
+    - generic [ref=e49]:
+      - generic [ref=e50]: "03"
+      - heading "眼妆" [level=2] [ref=e51]
+      - button "💡" [ref=e52] [cursor=pointer]
+    - generic [ref=e53]:
+      - generic [ref=e54]: 💄 个性化建议
+      - paragraph [ref=e55]: 你是杏眼，眼型圆润可爱，适合温柔系眼妆。大地色眼影最百搭，眼线可微微上扬增加灵动感。配合睫毛膏放大双眼，避免浓重烟熏妆。
+    - generic [ref=e56]:
+      - generic [ref=e57]: ⚠️ 避雷提示
+      - paragraph [ref=e58]: 杏眼不适合全包眼线，会压抑五官灵气；浅色珠光提亮眼皮中央更自然。
+  - generic [ref=e59]:
+    - generic [ref=e60]:
+      - generic [ref=e61]: "04"
+      - heading "腮红" [level=2] [ref=e62]
+      - button "💡" [ref=e63] [cursor=pointer]
+    - generic [ref=e64]:
+      - generic [ref=e65]: 💄 个性化建议
+      - paragraph [ref=e66]: 你的面部对称度较高，属于高对称度脸型，两侧轮廓均衡。腮红可打在苹果肌上方，斜向太阳穴方向轻扫，增添气色同时拉长脸部线条。
+    - generic [ref=e67]:
+      - generic [ref=e68]: ⚠️ 避雷提示
+      - paragraph [ref=e69]: 避免在两颊正中大面积涂抹，会让脸显圆；少量多次是秘诀。
+  - generic [ref=e70]:
+    - generic [ref=e71]:
+      - generic [ref=e72]: "05"
+      - heading "修容" [level=2] [ref=e73]
+      - button "💡" [ref=e74] [cursor=pointer]
+    - generic [ref=e75]:
+      - generic [ref=e76]: 💄 个性化建议
+      - paragraph [ref=e77]: 你是圆脸，面部线条柔和，骨骼感不强。修容重点在颧骨下方和下颌线，向内侧轻扫制造阴影感。鼻影从眉头向下延伸，拉长面部中轴线。
+    - generic [ref=e78]:
+      - generic [ref=e79]: ⚠️ 避雷提示
+      - paragraph [ref=e80]: 圆脸避免横向扫修容，会显脸更宽；打圈式上妆是大忌。
+  - generic [ref=e81]:
+    - generic [ref=e82]:
+      - generic [ref=e83]: "06"
+      - heading "唇妆" [level=2] [ref=e84]
+      - button "💡" [ref=e85] [cursor=pointer]
+    - generic [ref=e86]:
+      - generic [ref=e87]: 💄 个性化建议
+      - paragraph [ref=e88]: 根据你的整体风格推荐豆沙色系或奶茶色口红，温和不抢眼但提升气质。唇形边缘可用唇线笔轻微勾勒，打造柔和的模糊唇效果更显年轻。
+    - generic [ref=e89]:
+      - generic [ref=e90]: ⚠️ 避雷提示
+      - paragraph [ref=e91]: 避开荧光粉色系，会与温柔知性风冲突；哑光质地比镜面更显高级。
+  - generic [ref=e92]:
+    - heading "📌 妆容总结" [level=2] [ref=e93]
+    - paragraph [ref=e94]: 整体妆容以清透自然为核心，注重肤质的分区护理和五官的协调搭配。记住：最好的妆容是让人看不出化了妆，却觉得你状态很好。
+  - generic [ref=e95]:
+    - heading "👩 专属达人推荐" [level=2] [ref=e96]
+    - paragraph [ref=e97]: 正在为你匹配最合适的妆容达人，敬请期待…
+  - generic [ref=e99]:
+    - generic [ref=e100]: ✨
+    - paragraph [ref=e101]: 解锁专属报告，搭配更多场景
+    - button "解锁专属报告" [ref=e102] [cursor=pointer]
+  - button "分享报告" [ref=e104] [cursor=pointer]

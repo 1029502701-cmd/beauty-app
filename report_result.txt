@@ -1,0 +1,16 @@
+node:internal/process/promises:394
+    triggerUncaughtException(err, true /* fromPromise */);
+    ^
+
+page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:8788/report/t1-e2e-001
+Call log:
+  - navigating to "http://127.0.0.1:8788/report/t1-e2e-001", waiting until "networkidle"
+
+    at C:\Users\yao\Documents\ChatGPT\美妆app\report_img_test.js:6:11 {
+  log: [
+    '  - navigating to "http://127.0.0.1:8788/report/t1-e2e-001", waiting until "networkidle"'
+  ],
+  name: 'Error'
+}
+
+Node.js v22.20.0

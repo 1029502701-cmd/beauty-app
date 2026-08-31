@@ -1,0 +1,1 @@
+﻿import sys; sys.stdout.reconfigure(encoding="utf8"); path = r"C:\Users\yao\Documents\ChatGPT\美妆app\app\src\App.jsx"; c = open(path, "r", encoding="utf8").read(); lines = c.split("\n"); [print(f"{i}: {line}") for i, line in enumerate(lines) if "login" in line.lower() and ("path" in line or "token" in line)]

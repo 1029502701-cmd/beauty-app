@@ -1,0 +1,112 @@
+16: 
+17: const STYLE_EMOJIS = ['💄', '✨', '🌸', '💎'];
+18: const AD_DURATION_SEC = 5;
+24: ];
+25: 
+186:   const [shareDailyLimitExceeded, setShareDailyLimitExceeded] = useState(false);
+187:   const [expandedDims, setExpandedDims] = useState({});
+188:   const [reportValid, setReportValid] = useState(null); // null = not checked yet
+652:   }, [reportId, token]);
+653:   const toggleDim = (dim) => setExpandedDims((prev) => ({ ...prev, [dim]: !prev[dim] }));
+654: 
+664:   const t2 = tier2Content;
+665:   const dimOrder = ['faceShape', 'skinType', 'eyebrowShape', 'eyeShape', 'threeFiveRatio', 'symmetry'];
+666:   const dimLabels = { faceShape: '脸型', skinType: '肤质', eyebrowShape: '眉形', eyeShape: '眼型', threeFiveRatio: '三庭五眼', symmetry: '五官对称度' };
+
+--- Lines 798-882 ---
+798:             ) : !t2 ? <div className="report-loading">正在生成进阶报告...</div> : (
+799:               <>
+800:                 <div className="report-section">
+801:                   <h2 className="report-section-title">核心建议</h2>
+802:                   <div className="report-core-card"><p className="report-core-text">{t2.coreMakeup || '暂无内容'}</p></div>
+803:                 </div>
+804:                 <div className="report-section">
+805:                   <h2 className="report-section-title">风格定位</h2>
+806:                   <span className="report-style-badge">{STYLE_EMOJIS[0]} {t2.style || '清新自然'}</span>
+807:                   {t2.reason && <p className="report-reason">{t2.reason}</p>}
+808:                 </div>
+809:                 <div className="report-section">
+810:                   <h2 className="report-section-title">关键部位建议</h2>
+811:                   <div className="report-key-areas">
+812:                     {Array.isArray(t2.keyAreas) && t2.keyAreas.map((area, i) => (
+813:                       <div key={i} className="report-area-item">
+814:                         <span className="report-area-num">{i + 1}</span>
+815:                         <p className="report-area-text">{area}</p>
+816:                       </div>
+817:                     ))}
+818:                   </div>
+819:                 </div>
+820:                 {t2.productRecs && typeof t2.productRecs === 'object' && Object.keys(t2.productRecs).length > 0 && (
+821:                   <div className="report-section">
+822:                     <h2 className="report-section-title">推荐产品</h2>
+823:                     {dimOrder.map((dim) => {
+824:                       const recs = t2.productRecs[dim];
+825:                       if (!recs || !Array.isArray(recs) || recs.length === 0) return null;
+826:                       const isExpanded = expandedDims[dim];
+827:                       return (
+828:                         <div key={dim} className="report-dim-recs">
+829:                           <button className="report-dim-header" onClick={() => toggleDim(dim)}>
+830:                             <span className="report-dim-label">{dimLabels[dim] || dim}</span>
+831:                             <span className="report-dim-arrow">{isExpanded ? '▲' : '▼'}</span>
+832:                           </button>
+833:                           {isExpanded && (
+834:                             <div className="report-dim-products">
+835:                               {recs.slice(0, 2).map((rec, i) => {
+836:                                 const hasMedia = rec.imageUrl || rec.price;
+837:                                 return (
+838:                                   <a
+839:                                     key={i}
+840:                                     href={rec.itemUrl || undefined}
+841:                                     target="_blank"
+842:                                     rel="noopener noreferrer"
+843:                                     className={"report-product-card" + (hasMedia ? " report-product-card--rich" : "")}
+844:                                     onClick={(e) => { if (!rec.itemUrl) e.preventDefault(); }}
+845:                                   >
+846:                                     {hasMedia && rec.imageUrl ? (
+847:                                       <img
+848:                                         src={rec.imageUrl}
+849:                                         alt={rec.name || ""}
+850:                                         className="report-product-img"
+851:                                         referrerPolicy="no-referrer"
+852:                                         loading="lazy"
+853:                                         onError={(e) => { e.target.style.display = "none"; }}
+854:                                       />
+855:                                     ) : null}
+856:                                     <div className="report-product-info">
+857:                                       <span className="report-product-name">{rec.name || rec}</span>
+858:                                       {rec.price ? (
+859:                                         <span className="report-product-price">¥{rec.price}</span>
+860:                                       ) : null}
+861:                                       {rec.brandName ? (
+862:                                         <span className="report-product-brand">{rec.brandName}</span>
+863:                                       ) : null}
+864:                                       <span className="report-product-desc">{rec.desc || ""}</span>
+865:                                     </div>
+866:                                   </a>
+867:                                 );
+868:                               })}
+869:                             </div>
+870:                           )}
+871:                         </div>
+872:                       );
+873:                     })}
+874:                   </div>
+875:                 )}
+876:                 {t2.formula && (
+877:                   <div className="report-section">
+878:                     <h2 className="report-section-title">完整妆效配方</h2>
+879:                     <div className="report-formula-card"><p className="report-formula-text">{t2.formula}</p></div>
+880:                   </div>
+881:                 )}
+882:                 <div className="report-section">
+
+--- Lines 930-938 ---
+930:                         <p className="report-influencer-desc">{inf.desc}</p>
+931:                       </div>
+932:                     ))}
+933:                   </div>
+934:                 </div>
+935:               </>
+936:             )}
+937:           </div>
+938:         )}

@@ -1,0 +1,10 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]: 💄
+    - heading "美妆App" [level=1] [ref=e6]
+    - paragraph [ref=e7]: 发现你的专属美丽
+  - generic [ref=e8]:
+    - textbox "手机号 / 邮箱" [ref=e10]
+    - textbox "请输入密码" [ref=e12]
+    - textbox "请再次输入密码" [ref=e14]
+    - button "登录 / 注册" [disabled] [ref=e15]

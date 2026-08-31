@@ -1,0 +1,3 @@
+﻿-- 0019: Allow email-only registrations by making phone nullable concept
+-- phone remains NOT NULL in schema; email-only accounts use a generated placeholder (gen_<uuid>)
+-- This migration is informational — no DDL change needed for app-layer logic
