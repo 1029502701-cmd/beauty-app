@@ -14,11 +14,7 @@ export default function Login({ onLogin }) {
   const [smsEnabled, setSmsEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-
   const [account, setAccount] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
   const [codeSending, setCodeSending] = useState(false);
@@ -37,33 +33,28 @@ export default function Login({ onLogin }) {
     return () => clearTimeout(timer);
   }, [codeCountdown]);
 
-  const handlePasswordSubmit = async () => {
+  const handleAutoLogin = async () => {
     setError('');
     if (!isValidAccount(account)) { setError('请输入正确的手机号或邮箱'); return; }
-    if (password.length < 6) { setError('密码至少6位'); return; }
-    if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) { setError('密码需同时包含字母和数字'); return; }
-    if (password !== confirmPassword) { setError('两次密码不一致'); return; }
     setLoading(true);
     try {
-      const data = await authApi.loginOrRegister(account, password, confirmPassword);
+      const res = await fetch('/api/auth/auto-login?account=' + encodeURIComponent(account));
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '登录失败');
       await login(data.sessionId);
       onLogin?.(sessionStorage.getItem('auth_redirect_from') || null);
       sessionStorage.removeItem('auth_redirect_from');
-    } catch (e) {
-      setError(e.message || '登录失败，请重试');
-    } finally { setLoading(false); }
+    } catch (e) { setError(e.message || '登录失败，请重试'); }
+    finally { setLoading(false); }
   };
 
   const handleSendCode = async () => {
     setError('');
     if (!isValidPhone(phone)) { setError('请输入正确的手机号'); return; }
     setCodeSending(true);
-    try {
-      await authApi.sendSmsCode(phone);
-      setCodeCountdown(60);
-    } catch (e) {
-      setError(e.message || '发送失败，请重试');
-    } finally { setCodeSending(false); }
+    try { await authApi.sendSmsCode(phone); setCodeCountdown(60); }
+    catch (e) { setError(e.message || '发送失败，请重试'); }
+    finally { setCodeSending(false); }
   };
 
   const handleSmsSubmit = async () => {
@@ -73,8 +64,7 @@ export default function Login({ onLogin }) {
     setLoading(true);
     try {
       const res = await fetch('/api/auth/phone/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone, code }),
       });
       const data = await res.json();
@@ -82,9 +72,8 @@ export default function Login({ onLogin }) {
       await login(data.sessionId);
       onLogin?.(sessionStorage.getItem('auth_redirect_from') || null);
       sessionStorage.removeItem('auth_redirect_from');
-    } catch (e) {
-      setError(e.message || '登录失败，请重试');
-    } finally { setLoading(false); }
+    } catch (e) { setError(e.message || '登录失败，请重试'); }
+    finally { setLoading(false); }
   };
 
   return (
@@ -97,24 +86,16 @@ export default function Login({ onLogin }) {
 
       {smsEnabled && (
         <div className="login-tabs">
-          <button className={"login-tab" + (tab === "password" ? " login-tab--active" : "")} onClick={() => { setTab("password"); setError(""); }}>密码登录</button>
+          <button className={"login-tab" + (tab === "password" ? " login-tab--active" : "")} onClick={() => { setTab("password"); setError(""); }}>一键登录</button>
           <button className={"login-tab" + (tab === "sms" ? " login-tab--active" : "")} onClick={() => { setTab("sms"); setError(""); }}>验证码登录</button>
         </div>
       )}
 
       <div className="login-form">
         {tab === "password" ? (
-          <>
-            <div className="input-group">
-              <input type="text" className="input-field" placeholder="手机号 / 邮箱" value={account} onChange={(e) => { setAccount(e.target.value); setError(""); }} onKeyDown={(e) => { if (e.key === "Enter") handlePasswordSubmit(); }} />
-            </div>
-            <div className="input-group">
-              <input type="password" className="input-field" placeholder="请输入密码" value={password} onChange={(e) => { setPassword(e.target.value); setError(""); }} onKeyDown={(e) => { if (e.key === "Enter") handlePasswordSubmit(); }} />
-            </div>
-            <div className="input-group">
-              <input type="password" className="input-field" placeholder="请再次输入密码" value={confirmPassword} onChange={(e) => { setConfirmPassword(e.target.value); setError(""); }} onKeyDown={(e) => { if (e.key === "Enter") handlePasswordSubmit(); }} />
-            </div>
-          </>
+          <div className="input-group">
+            <input type="text" className="input-field" placeholder="手机号 / 邮箱" value={account} onChange={(e) => { setAccount(e.target.value); setError(""); }} onKeyDown={(e) => { if (e.key === "Enter") handleAutoLogin(); }} />
+          </div>
         ) : (
           <>
             <div className="input-group input-group--code">
@@ -132,7 +113,7 @@ export default function Login({ onLogin }) {
         {error && <p className="error-msg">{error}</p>}
 
         {tab === "password" ? (
-          <button className="login-btn" disabled={loading || !isValidAccount(account) || password.length < 6 || password !== confirmPassword} onClick={handlePasswordSubmit}>
+          <button className="login-btn" disabled={loading || !isValidAccount(account)} onClick={handleAutoLogin}>
             {loading ? "登录中..." : "登录 / 注册"}
           </button>
         ) : (
