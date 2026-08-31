@@ -47,15 +47,32 @@ function Router() {
     window.history.replaceState(null, '', '/login');
   };
 
+  // Handle token returned from auth.meijian.top
+  const tokenProcessRef = useRef(false);
+  useEffect(() => {
+    if (tokenProcessRef.current || loading) return;
+    const url = new URL(window.location.href);
+    const token = url.searchParams.get('token');
+    if (token) {
+      tokenProcessRef.current = true;
+      url.searchParams.delete('token');
+      window.history.replaceState(null, '', url.toString());
+      login(token);
+      const redirectFrom = url.searchParams.get('redirect');
+      const target = redirectFrom ? decodeURIComponent(redirectFrom) : '/home';
+      setPage(target === '/home' ? '' : target);
+      window.history.replaceState(null, '', target === '/home' ? '/' : target);
+    }
+  }, [loading, login]);
+
   useEffect(() => {
     if (!loading) {
       const path = window.location.pathname;
       const effectivePath = path === '/' ? '' : path;
-      // Unauthenticated: redirect to /login (also normalize / -> /login)
+      // Unauthenticated: redirect to unified login (auth.meijian.top)
       if (!token && effectivePath !== '/login' && effectivePath !== '/admin/login' && !effectivePath.startsWith('/admin')) {
-        sessionStorage.setItem('auth_redirect_from', effectivePath || '/');
-        setPage('/login');
-        window.history.replaceState(null, '', '/login');
+        const target = encodeURIComponent(window.location.origin + effectivePath || '/');
+        window.location.href = 'https://auth.meijian.top?redirect=' + target;
       }
       // Authenticated: redirect root / to /home
       else if (token && (effectivePath === '' || effectivePath === '/')) {
@@ -81,7 +98,7 @@ function Router() {
   if (token && (page === '' || page === '/')) return <Home onLogout={handleLogout} />;
 
   const renderPage = () => {
-    if (page === '/login') return <Login onLogin={handleLogin} />;
+    // Login page removed from routing — external auth via auth.meijian.top
     return (
       <RequireAuth
         fallbackPath="/home"
