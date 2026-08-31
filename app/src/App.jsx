@@ -48,6 +48,7 @@ function Router() {
   };
 
   // Handle token returned from auth.meijian.top
+  // MUST run before the auth-effect below so redirect param is read before token is stored
   const tokenProcessRef = useRef(false);
   useEffect(() => {
     if (tokenProcessRef.current || loading) return;
@@ -55,10 +56,11 @@ function Router() {
     const token = url.searchParams.get('token');
     if (token) {
       tokenProcessRef.current = true;
+      // Capture redirect BEFORE mutating the URL
+      const redirectFrom = url.searchParams.get('redirect');
       url.searchParams.delete('token');
       window.history.replaceState(null, '', url.toString());
       login(token);
-      const redirectFrom = url.searchParams.get('redirect');
       const target = redirectFrom ? decodeURIComponent(redirectFrom) : '/home';
       setPage(target === '/home' ? '' : target);
       window.history.replaceState(null, '', target === '/home' ? '/' : target);
@@ -74,8 +76,8 @@ function Router() {
         const target = encodeURIComponent(window.location.origin + effectivePath || '/');
         window.location.href = 'https://auth.meijian.top?redirect=' + target;
       }
-      // Authenticated: redirect root / to /home
-      else if (token && (effectivePath === '' || effectivePath === '/')) {
+      // Authenticated: redirect root / to /home (skip while processing callback token)
+      else if (!tokenProcessRef.current && token && (effectivePath === '' || effectivePath === '/')) {
         setPage('/home');
         window.history.replaceState(null, '', '/home');
       }

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>模拟支付</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; background: #fafafa; }
+    .card { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    h2 { margin: 0 0 8px; font-size: 20px; color: #1a1a1a; }
+    .hint { color: #888; font-size: 13px; margin-bottom: 20px; }
+    .order-info { background: #f5f5f5; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; font-size: 14px; }
+    .order-info strong { color: #333; }
+    button { width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; margin-bottom: 10px; }
+    .pay-btn { background: #ff4d4f; color: #fff; }
+    .cancel-btn { background: #f0f0f0; color: #666; }
+    .result { display: none; text-align: center; padding: 20px; }
+    .result.success { color: #52c41a; }
+    .result.error { color: #ff4d4f; }
+    .spinner { border: 3px solid #f3f3f3; border-top: 3px solid #ff4d4f; border-radius: 50%; width: 32px; height: 32px; animation: spin 1s linear infinite; margin: 0 auto 12px; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .redeem-box { background: #f0f9ff; border: 2px dashed #1890ff; border-radius: 8px; padding: 16px; margin: 16px 0; }
+    .redeem-code { font-family: monospace; font-size: 22px; letter-spacing: 4px; color: #1890ff; font-weight: bold; user-select: all; }
+    .redeem-hint { font-size: 13px; color: #666; margin-top: 8px; }
+    .redeem-copy-btn { width: 100%; padding: 10px; border: 1px dashed #1890ff; border-radius: 8px; font-size: 14px; color: #1890ff; background: #fff; cursor: pointer; margin-top: 8px; transition: background .2s; }
+    .redeem-copy-btn:hover { background: #f0f9ff; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>模拟支付确认</h2>
+    <p class="hint">此页面仅用于开发/测试阶段，正式环境请对接真实支付渠道</p>
+    <div class="order-info" id="orderInfo">
+      <strong>订单号：</strong><span id="orderIdDisplay">加载中...</span>
+    </div>
+    <div id="btnArea">
+      <button class="pay-btn" onclick="confirmPay()">确认支付</button>
+      <button class="cancel-btn" onclick="cancelPay()">取消</button>
+    </div>
+    <div class="result" id="result">
+      <div class="spinner" id="spinner"></div>
+      <p id="resultText"></p>
+      <div id="redeemSection" style="display:none;">
+        <div class="redeem-box">
+          <p class="redeem-hint">您的兑换码（请妥善保存）：</p>
+          <div class="redeem-code" id="redeemCodeDisplay">--------</div>
+          <button class="redeem-copy-btn" id="redeemCopyBtn" onclick="copyRedeemCode()">复制</button>
+          <p class="redeem-hint">返回 App 后，在"专属报告"页面输入此兑换码即可绑定使用</p>
+        </div>
+      </div>
+      <button class="cancel-btn" onclick="goBack()" style="margin-top:16px">返回</button>
+    </div>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const returnTab = params.get("tab") || "";
+    const orderId = params.get("orderId") || "未知";
+    document.getElementById("orderIdDisplay").textContent = orderId;
+    async function confirmPay() {
+      document.getElementById("btnArea").style.display = "none";
+      document.getElementById("result").style.display = "block";
+      document.getElementById("spinner").style.display = "block";
+      document.getElementById("resultText").textContent = "处理中...";
+      try {
+        const res = await fetch("/api/orders/mock-pay-confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId })
+        });
+        const data = await res.json();
+        document.getElementById("spinner").style.display = "none";
+        if (res.ok && data.success) {
+          document.getElementById("result").className = "result success";
+          document.getElementById("resultText").textContent =
+            data.purpose === "influencer_apply"
+              ? "支付成功！达人申请已进入待审核状态，请等待工作人员审核。"
+              : "支付成功！Token 已发放，请记录下方兑换码。";
+          if (data.purpose === "influencer_apply") {
+            setTimeout(() => { window.location.href = "/influencer-apply"; }, 2000);
+          } else if (data.redeemCode) {
+            document.getElementById("redeemSection").style.display = "block";
+            document.getElementById("redeemCodeDisplay").textContent = data.redeemCode;
+          }
+        } else {
+          document.getElementById("result").className = "result error";
+          document.getElementById("resultText").textContent = "支付失败：" + (data.error || "未知错误");
+        }
+      } catch (e) {
+        document.getElementById("spinner").style.display = "none";
+        document.getElementById("result").className = "result error";
+        document.getElementById("resultText").textContent = "网络错误：" + e.message;
+      }
+    }
+    function cancelPay() { history.back(); }
+    function goBack() {
+      if (returnTab) {
+        var base = window.location.origin + "/report";
+        var sep = base.includes("?") ? "&" : "?";
+        var url = base + sep + "tab=" + encodeURIComponent(returnTab);
+        // 保留原始 id 参数（从当前URL或referrer中提取）
+        var currentPageParams = new URLSearchParams(location.search);
+        var origId = currentPageParams.get("id");
+        if (!origId && document.referrer) {
+          try { var referrerParams = new URLSearchParams(document.referrer.split("?")[1] || ""); origId = referrerParams.get("id"); } catch(e) {}
+        }
+        if (origId) url += "&id=" + encodeURIComponent(origId);
+        window.location.href = url;
+      } else {
+        history.back();
+      }
+    }
+    function copyRedeemCode() { var code = document.getElementById("redeemCodeDisplay").textContent; var btn = document.getElementById("redeemCopyBtn"); if (!code || code === "--------") return; if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(code).then(function() { btn.textContent = "已复制"; setTimeout(function() { btn.textContent = "复制"; }, 1500); }); } else { var ta = document.createElement("textarea"); ta.value = code; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); btn.textContent = "已复制"; setTimeout(function() { btn.textContent = "复制"; }, 1500); } }
+  </script>
+</body>
+</html>
+
