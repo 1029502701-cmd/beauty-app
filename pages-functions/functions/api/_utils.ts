@@ -17,6 +17,7 @@ export interface Ctx {
     R2_PERM: R2Bucket;
     ADMIN_USERNAME?: string;
     ADMIN_PASSWORD?: string;
+    AUTH_JWT_SECRET?: string;
   };
 }
 
@@ -67,14 +68,84 @@ export async function hashPassword(password: string): Promise<string> {
   return btoa(String.fromCharCode(...hashBuf)) + ":" + salt;
 }
 
+// --- Pure-JS JWT helpers (Web Crypto API, no node:crypto) ---
+
+function base64urlEncode(data: Uint8Array): string {
+  return btoa(String.fromCharCode(...data))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+function base64urlDecode(str: string): Uint8Array {
+  let base64 = str
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
+  while (base64.length % 4) base64 += '=';
+  const bytes = new Uint8Array(atob(base64).split('').map(c => c.charCodeAt(0)));
+  return bytes;
+}
+
+async function signHmacSha256(key: string, message: string): Promise<Uint8Array> {
+  const enc = new TextEncoder();
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', cryptoKey, enc.encode(message));
+  return new Uint8Array(signature);
+}
+
+async function verifyHmacSha256(key: string, message: string, signature: Uint8Array): Promise<boolean> {
+  const enc = new TextEncoder();
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']
+  );
+  return crypto.subtle.verify('HMAC', cryptoKey, signature, enc.encode(message));
+}
+
+export interface JwtPayload {
+  user_id: string;
+  iat: number;
+  exp: number;
+}
+
+export async function verifyJwt(token: string, secret: string): Promise<JwtPayload | null> {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [header, body, signature] = parts;
+  const valid = await verifyHmacSha256(secret, header + '.' + body, base64urlDecode(signature));
+  if (!valid) return null;
+  try {
+    const payload = JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/'))) as JwtPayload;
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * 中间件：验证 session，返回 AuthUser 或 null
+ * 中间件：优先验证 JWT，失败则回退到 session 验证，返回 AuthUser 或 null
  */
 export async function requireAuth(
   req: Request,
   env: Ctx["env"]
 ): Promise<AuthUser | null> {
-  const token = req.headers.get("Authorization")?.replace("Bearer ", "");
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) return null;
+
+  // 1. 优先尝试 JWT 验证（chat-ai-auth 签发）
+  if (authHeader.startsWith("Bearer ") && env.AUTH_JWT_SECRET) {
+    const jwtToken = authHeader.slice("Bearer ".length);
+    const payload = await verifyJwt(jwtToken, env.AUTH_JWT_SECRET);
+    if (payload) {
+      return { userId: payload.user_id };
+    }
+  }
+
+  // 2. 回退到 session 验证（原有逻辑）
+  const token = authHeader.replace("Bearer ", "");
   if (!token) return null;
 
   const sessionKey = `${SESSION_PREFIX}${token}`;
