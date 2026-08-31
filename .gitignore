@@ -17,3 +17,16 @@ app/dist/
 
 # 测试输出
 test_output/
+
+pages-functions/_fix*.py
+pages-functions/functions/api/auth/login-or-register.ts
+pages-functions/functions/api/auth/login.ts
+pages-functions/functions/api/auth/register.ts
+pages-functions/functions/api/debug/crypto-test.ts
+pages-functions/functions/api/debug/env-dump.ts
+pages-functions/functions/api/debug/jwt-selftest.ts
+pages-functions/functions/api/debug/jwt-verify-test.ts
+pages-functions/functions/api/test/
+pages-functions/functions/api/_taobao.ts
+pages-functions/functions/api/tier2/
+
