@@ -21,7 +21,10 @@ export const GET: FrameworkCallbackOptions['GET'] = async (context) => {
     : await env.DB.prepare('SELECT id, password_hash FROM users WHERE phone = ? LIMIT 1').bind(account).first<any>();
   let userId: string;
   let isNew: boolean;
+  let needPassword: boolean = false;
+
   if (!user) {
+    // 新账号：自动注册，不需要密码
     userId = generateId();
     const phone = isEmail ? 'gen_' + userId : account;
     const email = isEmail ? account : null;
@@ -30,9 +33,35 @@ export const GET: FrameworkCallbackOptions['GET'] = async (context) => {
   } else {
     userId = user.id;
     isNew = false;
+    needPassword = !!user.password_hash;
   }
+
+  // 如果老账号且有密码，验证提供的密码
+  if (!isNew && user?.password_hash) {
+    const providedPassword = url.searchParams.get('password');
+    if (!providedPassword) {
+      // 没有提供密码，提示需要密码
+      return new Response(JSON.stringify({ needPassword: true, isNew: false, message: '请输入密码' }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    // 验证密码（使用 Cloudflare Workers 的 crypto）
+    const encoder = new TextEncoder();
+    const msgUint8 = encoder.encode(providedPassword + userId); // 简单盐值方式
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashedPassword = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    
+    if (hashedPassword !== user.password_hash) {
+      return new Response(JSON.stringify({ error: '密码错误', needPassword: true, isNew: false }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
   const sessionId = generateId();
   await env.SESSION_KV.put('session:' + sessionId, JSON.stringify({ userId, expiresAt: now + 7 * 24 * 60 * 60 }), { expirationTtl: 7 * 24 * 60 * 60 });
-  return new Response(JSON.stringify({ sessionId, isNew }), { headers: { 'Content-Type': 'application/json' } });
+  return new Response(JSON.stringify({ sessionId, isNew, needPassword }), { headers: { 'Content-Type': 'application/json' } });
 };
 export const onRequestGet = async (...args) => GET(args[0]);
