@@ -37,6 +37,7 @@ export default function Login({ onLogin }) {
 
   const handleAutoLogin = async () => {
     setError('');
+    setNeedPassword(false);
     if (!isValidAccount(account)) { setError('请输入正确的手机号或邮箱'); return; }
     setLoading(true);
     try {

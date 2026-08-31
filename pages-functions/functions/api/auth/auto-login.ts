@@ -36,24 +36,25 @@ export const GET: FrameworkCallbackOptions['GET'] = async (context) => {
     needPassword = !!user.password_hash;
   }
 
-  // 如果老账号且有密码，验证提供的密码
+  // 老账号且有密码：验证密码（PBKDF2，与 register.ts/login.ts 同一套实现）
   if (!isNew && user?.password_hash) {
     const providedPassword = url.searchParams.get('password');
     if (!providedPassword) {
-      // 没有提供密码，提示需要密码
       return new Response(JSON.stringify({ needPassword: true, isNew: false, message: '请输入密码' }), {
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    // 验证密码（使用 Cloudflare Workers 的 crypto）
-    const encoder = new TextEncoder();
-    const msgUint8 = encoder.encode(providedPassword + userId); // 简单盐值方式
-    const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const hashedPassword = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    
-    if (hashedPassword !== user.password_hash) {
-      return new Response(JSON.stringify({ error: '密码错误', needPassword: true, isNew: false }), {
+    const [storedHash, salt] = (user.password_hash as string).split(':');
+    if (!storedHash || !salt) {
+      return new Response(JSON.stringify({ error: '账号或密码错误' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+    }
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(providedPassword), 'PBKDF2', false, ['deriveBits']);
+    const derivedBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: enc.encode(salt), iterations: 100000, hash: 'SHA-256' }, keyMaterial, 256);
+    const hashBuf = new Uint8Array(derivedBits);
+    const inputHash = btoa(String.fromCharCode(...hashBuf));
+    if (inputHash !== storedHash) {
+      return new Response(JSON.stringify({ error: '账号或密码错误', needPassword: true, isNew: false }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' },
       });
