@@ -2,6 +2,9 @@ import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
 
 export const GET: FrameworkCallbackOptions["GET"] = async (context) => {
   const { env } = context;
+  if (!env.DEBUG_MODE) {
+    return new Response(JSON.stringify({error:"not available in production"}),{status:404});
+  }
   const keys = Object.keys(env).filter(k => k.includes('SECRET') || k.includes('KEY') || k.includes('TOKEN') || k.includes('JWT'));
   return new Response(JSON.stringify({ availableSecrets: keys }), { headers: { "Content-Type": "application/json" } });
 };

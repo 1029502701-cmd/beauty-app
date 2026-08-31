@@ -8,6 +8,9 @@ function b64urlDecode(str: string): Uint8Array {
 
 export const GET: FrameworkCallbackOptions["GET"] = async (context) => {
   const { env } = context;
+  if (!env.DEBUG_MODE) {
+    return new Response(JSON.stringify({error:"not available in production"}),{status:404});
+  }
   const secret = env.AUTH_JWT_SECRET;
   const enc = new TextEncoder();
 
