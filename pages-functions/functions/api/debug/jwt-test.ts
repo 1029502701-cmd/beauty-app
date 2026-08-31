@@ -49,9 +49,7 @@ export const GET: FrameworkCallbackOptions["GET"] = async (context) => {
 
   return new Response(JSON.stringify({
     hasJwtSecret: !!secret,
-    secretLength: secret?.length ?? 0,
-    secretFirst4: secret?.slice(0, 4) ?? 'none',
-    sigResult,
+        sigResult,
     verifyResult,
     tokenPayload,
   }), { headers: { "Content-Type": "application/json" } });
