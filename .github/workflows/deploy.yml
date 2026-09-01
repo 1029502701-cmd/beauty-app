@@ -30,6 +30,7 @@ jobs:
 
       - name: Merge frontend into dist
         run: |
+          mkdir -p dist/assets
           cp -r ../app/dist/assets/* dist/assets/
           cp ../app/dist/index.html dist/index.html
           cp ../app/dist/favicon.svg dist/ 2>/dev/null || true
