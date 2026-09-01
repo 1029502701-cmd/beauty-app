@@ -16,8 +16,8 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install pages-functions deps
-        run: cd pages-functions && npm install
+      - name: Install dependencies
+        run: npm install
 
       - name: Build Functions
         run: cd pages-functions && npx wrangler pages functions build --outdir dist
