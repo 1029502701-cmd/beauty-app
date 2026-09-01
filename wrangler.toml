@@ -1,7 +1,6 @@
 name = "beauty-api-pages"
 pages_build_output_dir = "app/dist"
 compatibility_date = "2024-11-01"
-build.command = "cd pages-functions && npx wrangler pages functions build --outdir ../_cf-func && cd ../app && npm install && npm run build && cp ../_cf-func/index.js ./dist/ && cp ../_cf-func/_routes.json ./dist/ 2>/dev/null || true && rm -rf ../_cf-func"
 
 [[d1_databases]]
 binding = "DB"
