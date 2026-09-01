@@ -13,7 +13,7 @@ import AdminLogin from './pages/AdminLogin.jsx';
 import AdminDashboard from './pages/AdminDashboard.jsx';
 
 function Router() {
-  const { token, loading, logout } = useContext(AuthContext);
+  const { token, loading, logout, login } = useContext(AuthContext);
   const [page, setPage] = useState(() => {
     const saved = sessionStorage.getItem('auth_redirect_from');
     const path = window.location.pathname;
