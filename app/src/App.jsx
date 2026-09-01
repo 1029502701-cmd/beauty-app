@@ -41,6 +41,7 @@ function Router() {
   const handleLogout = async () => {
     await logout();
     sessionStorage.removeItem('auth_redirect_from');
+    tokenProcessRef.current = false;
     loginRedirectTargetRef.current = null;
     setPage('/login');
     window.history.replaceState(null, '', '/login');
