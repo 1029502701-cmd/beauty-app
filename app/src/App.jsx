@@ -30,6 +30,8 @@ function Router() {
 
   // Track the last redirect target set by handleLogin to avoid race conditions
   const loginRedirectTargetRef = useRef(null);
+  // Remember the intended page before any internal redirect to /login
+  const intendedPageRef = useRef(null);
 
   const handleLogin = (redirectFrom) => {
     const target = redirectFrom || '/home';
@@ -73,6 +75,8 @@ function Router() {
       const effectivePath = path === '/' ? '' : path;
       // Unauthenticated: redirect to unified login (auth.meijian.top)
       if (!token && effectivePath !== '/login' && effectivePath !== '/admin/login' && !effectivePath.startsWith('/admin')) {
+        // Save intended path BEFORE internal redirect to /login
+        intendedPageRef.current = effectivePath || '/';
         const target = encodeURIComponent(window.location.origin + effectivePath || '/');
         window.location.href = 'https://auth.meijian.top?redirect=' + target;
       }
@@ -85,8 +89,11 @@ function Router() {
         // Sync URL on direct navigation while authenticated (e.g. refresh)
         setPage(effectivePath);
       }
-      else if (!token && effectivePath === '/login' && page !== '/login') {
-        setPage('/login');
+      else if (!token && effectivePath === '/login') {
+        // Redirect to external auth, using the originally-intended path
+        const intendedPath = intendedPageRef.current || effectivePath || '/';
+        const target = encodeURIComponent(window.location.origin + intendedPath);
+        window.location.href = 'https://auth.meijian.top?redirect=' + target;
       }
     }
   }, [token, loading]);
