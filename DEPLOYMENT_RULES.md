@@ -24,3 +24,10 @@ px wrangler whoami\ 显示账户为 \1029502701@qq.com\
 - 始终用 --branch=master
 - 部署后双域名生效：beauty-api-pages.pages.dev 和 ccfu.ccwu.cc
 - 2026-09-01: 修复登录重定向循环 — tokenProcessRef 在注销时未重置
+
+---
+
+## 部署说明
+
+每次 push 到 master 会自动触发 GitHub Actions 部署。
+如需手动触发，访问: https://github.com/1029502701-cmd/beauty-app/actions/workflows/deploy.yml
