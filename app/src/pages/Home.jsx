@@ -4,11 +4,16 @@ import { BASE } from '../api.js';
 
 const PRODUCTS = [
   { id: 'ai-beauty', label: 'AI 美妆', icon: '💄', path: '/capture' },
+  { id: 'chat-ai', label: '聊天AI', icon: '💬', path: 'https://gxvipvpn2.ccwu.cc' },
 ];
 
 const COMING_SOON = { id: 'coming-soon', label: '更多功能开发中...', icon: '+' };
 
 function navigate(path) {
+  if (path.startsWith('http')) {
+    window.open(path, '_blank');
+    return;
+  }
   window.history.pushState({}, '', path);
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
