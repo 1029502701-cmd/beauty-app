@@ -28,6 +28,11 @@ function scan(dir, mountPath) {
 }
 
 scan(functionsDir, "/api");
+// Add catchall route for SPA pages
+const catchallPath = path.join(__dirname, "functions", "[[catchall]].ts");
+if (fs.existsSync(catchallPath)) {
+  routes.push("/*");
+}
 const unique = [...new Set(routes)].sort();
 
 const output = {
