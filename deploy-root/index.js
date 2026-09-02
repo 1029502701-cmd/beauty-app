@@ -3926,32 +3926,7 @@ var GET25 = /* @__PURE__ */ __name(async (context) => {
 }, "GET");
 var onRequestGet25 = /* @__PURE__ */ __name(async (...args) => GET25(...args), "onRequestGet");
 
-// [[catchall]].ts
-var onRequest = /* @__PURE__ */ __name(async (context) => {
-  const { env, request } = context;
-  const url = new URL(request.url);
-  if (url.pathname.startsWith("/api/")) {
-    return null;
-  }
-  try {
-    const asset = await env.ASSETS.fetch(request);
-    if (asset.status === 200) return asset;
-  } catch {
-  }
-  const spaRoutes = ["/", "/tier1-result", "/capture", "/home", "/report", "/influencer-apply", "/admin/login", "/admin/dashboard"];
-  const isKnownSpaRoute = spaRoutes.includes(url.pathname) || url.pathname.startsWith("/report/");
-  if (isKnownSpaRoute) {
-    try {
-      const indexReq = new Request(new URL("/", request.url));
-      const indexResp = await env.ASSETS.fetch(indexReq);
-      if (indexResp.status === 200) return indexResp;
-    } catch {
-    }
-  }
-  return new Response("Not found", { status: 404 });
-}, "onRequest");
-
-// ../.wrangler/tmp/pages-PGjYcz/functionsRoutes-0.7812171765843212.mjs
+// ../.wrangler/tmp/pages-qJs3LX/functionsRoutes-0.05052763325796783.mjs
 var routes = [
   {
     routePath: "/api/admin/influencers/:id/approve",
@@ -4337,13 +4312,6 @@ var routes = [
     method: "GET",
     middlewares: [],
     modules: [onRequestGet25]
-  },
-  {
-    routePath: "/:catchall*",
-    mountPath: "/",
-    method: "",
-    middlewares: [],
-    modules: [onRequest]
   }
 ];
 
