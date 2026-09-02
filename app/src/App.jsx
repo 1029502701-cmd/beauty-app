@@ -54,6 +54,7 @@ function Router() {
     await logout();
     sessionStorage.removeItem('auth_redirect_from');
     tokenProcessRef.current = false;
+    callbackTokenRef.current = null;
     loginRedirectTargetRef.current = null;
     const target = '/home';
     setPage(target);
