@@ -55,8 +55,9 @@ function Router() {
     sessionStorage.removeItem('auth_redirect_from');
     tokenProcessRef.current = false;
     loginRedirectTargetRef.current = null;
-    setPage('/login');
-    window.history.replaceState(null, '', '/login');
+    const target = '/home';
+    setPage(target);
+    window.history.replaceState(null, '', target);
     console.log('[DIAG] handleLogout DONE tokenProcessRef=', tokenProcessRef.current);
   };
 
@@ -113,7 +114,7 @@ function Router() {
         const storedRedirect = sessionStorage.getItem('auth_redirect_from');
         const target = storedRedirect
           ? encodeURIComponent(storedRedirect)
-          : encodeURIComponent(window.location.origin + (effectivePath || '/'));
+          : encodeURIComponent(window.location.origin + '/');
         window.location.href = 'https://auth.meijian.top?redirect=' + target;
       }
       else {
