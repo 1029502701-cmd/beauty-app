@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  optimizeDeps: { noDiscovery: true },
+  optimizeDeps: { noDiscovery: true }, build: { sourcemap: true },
   server: {
     proxy: {
       "/api": {

@@ -1,48 +1,58 @@
-const { chromium } = require("playwright");
-const fs = require("fs");
-
-const BASE = "http://127.0.0.1:8788";
-const OUT = "C:\\\\Users\\\\yao\\\\Documents\\\\ChatGPT\\\\\\u7f8e\\u5986app\\\\test_output";
-if (!fs.existsSync(OUT)) fs.mkdirSync(OUT, { recursive: true });
+const { chromium } = require('playwright');
 
 (async () => {
-  const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-  const pg = await ctx.newPage();
-
-  await pg.goto(BASE + "/login", { waitUntil: "networkidle", timeout: 15000 });
-  await pg.waitForTimeout(2000);
-
-  // Screenshot the login page
-  await pg.screenshot({ path: OUT + "\\\\login_page.png", fullPage: true });
-  console.log("Screenshot saved: login_page.png");
-
-  // Get page HTML structure
-  const html = await pg.evaluate(() => document.body.innerHTML.substring(0, 3000));
-  console.log("Page HTML:", html);
-
-  // Get all inputs
-  const inputs = await pg.evaluate(() => {
-    return Array.from(document.querySelectorAll("input")).map((i, idx) => ({
-      idx,
-      type: i.type,
-      name: i.name,
-      placeholder: i.placeholder,
-      id: i.id,
-      className: i.className
-    }));
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  
+  const requests = [];
+  page.on('request', req => {
+    if (req.url().includes('/api/') || req.url().includes('auth.meijian')) {
+      requests.push({ type: 'request', url: req.url(), method: req.method() });
+    }
   });
-  console.log("Inputs:", JSON.stringify(inputs, null, 2));
-
-  // Get all buttons
-  const buttons = await pg.evaluate(() => {
-    return Array.from(document.querySelectorAll("button")).map((b, idx) => ({
-      idx,
-      text: b.textContent.trim().substring(0, 50),
-      className: b.className
-    }));
+  page.on('response', resp => {
+    if (resp.url().includes('/api/') || resp.url().includes('auth.meijian')) {
+      requests.push({ type: 'response', url: resp.url(), status: resp.status() });
+    }
   });
-  console.log("Buttons:", JSON.stringify(buttons, null, 2));
-
+  
+  // 清除 localStorage 模拟无痕模式
+  await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
+  
+  console.log('=== Navigating to ccfu.ccwu.cc ===');
+  await page.goto('https://ccfu.ccwu.cc', { waitUntil: 'networkidle' });
+  
+  console.log('Current URL:', page.url());
+  console.log('LocalStorage:', await page.evaluate(() => JSON.stringify(localStorage)));
+  console.log('SessionStorage:', await page.evaluate(() => JSON.stringify(sessionStorage)));
+  console.log('Console logs:', await page.evaluate(() => window.__diagnosticLogs || 'none'));
+  
+  // 模拟被 redirect 到 auth.meijian.top
+  console.log('\n=== Simulating auth redirect ===');
+  const authUrl = 'https://auth.meijian.top?redirect=' + encodeURIComponent('https://ccfu.ccwu.cc/');
+  console.log('Would redirect to:', authUrl);
+  
+  // 模拟 callback（直接导航到带 token 的 URL）
+  console.log('\n=== Simulating token callback ===');
+  const token = 'test-diagnostic-token-12345';
+  const callbackUrl = 'https://ccfu.ccwu.cc/?token=' + token;
+  console.log('Navigating to:', callbackUrl);
+  
+  await page.goto(callbackUrl, { waitUntil: 'networkidle' });
+  
+  console.log('Current URL after callback:', page.url());
+  console.log('LocalStorage after callback:', await page.evaluate(() => JSON.stringify(localStorage)));
+  console.log('SessionStorage after callback:', await page.evaluate(() => JSON.stringify(sessionStorage)));
+  console.log('Console logs after callback:', await page.evaluate(() => window.__diagnosticLogs || 'none'));
+  
+  // 等待几秒看是否有额外请求
+  await page.waitForTimeout(3000);
+  
+  console.log('\n=== Final state ===');
+  console.log('Current URL:', page.url());
+  console.log('LocalStorage:', await page.evaluate(() => JSON.stringify(localStorage)));
+  console.log('All requests:', JSON.stringify(requests, null, 2));
+  
   await browser.close();
-})().catch(e => { console.error("Failed:", e.message); process.exit(1); });
+})();
