@@ -20,7 +20,7 @@ jobs:
         run: npm install
 
       - name: Build Functions
-        run: cd pages-functions && npx wrangler pages functions build --outdir dist
+        run: cd pages-functions && npx wrangler pages functions build --outdir dist --output-routes-path dist/_routes.json
 
       - name: Build frontend
         run: |
