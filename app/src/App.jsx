@@ -62,16 +62,16 @@ function Router() {
       return;
     }
     const url = new URL(window.location.href);
-    const token = url.searchParams.get('token');
+    const callbackToken = url.searchParams.get('token');
     console.log('[DIAG] token-effect URL search', { token, redirect: url.searchParams.get('redirect'), fullUrl: window.location.href });
-    if (token) {
+    if (callbackToken) {
       tokenProcessRef.current = true;
       console.log('[DIAG] token-effect FOUND token, setting ref=true');
       // Capture redirect BEFORE mutating the URL
       const redirectFrom = url.searchParams.get('redirect');
       url.searchParams.delete('token');
       window.history.replaceState(null, '', url.toString());
-      login(token);
+      login(callbackToken);
       const target = redirectFrom ? decodeURIComponent(redirectFrom) : '/home';
       setPage(target === '/home' ? '' : target);
       window.history.replaceState(null, '', target === '/home' ? '/' : target);
@@ -154,3 +154,4 @@ export default function App() {
     </AuthProvider>
   );
 }
+
