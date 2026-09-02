@@ -460,8 +460,52 @@ async function requireAdminAuth(req, env) {
   return true;
 }
 __name(requireAdminAuth, "requireAdminAuth");
+function base64urlDecode(str) {
+  let base64 = str.replace(/-/g, "+").replace(/_/g, "/");
+  while (base64.length % 4) base64 += "=";
+  const bytes = new Uint8Array(atob(base64).split("").map((c) => c.charCodeAt(0)));
+  return bytes;
+}
+__name(base64urlDecode, "base64urlDecode");
+async function verifyHmacSha256(key, message, signature) {
+  const enc = new TextEncoder();
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(key),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["verify"]
+  );
+  return crypto.subtle.verify("HMAC", cryptoKey, signature, enc.encode(message));
+}
+__name(verifyHmacSha256, "verifyHmacSha256");
+async function verifyJwt(token, secret) {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [header, body, signature] = parts;
+  const valid = await verifyHmacSha256(secret, header + "." + body, base64urlDecode(signature));
+  if (!valid) return null;
+  try {
+    const payload = JSON.parse(atob(body.replace(/-/g, "+").replace(/_/g, "/")));
+    const now = Math.floor(Date.now() / 1e3);
+    if (payload.exp && payload.exp < now) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+__name(verifyJwt, "verifyJwt");
 async function requireAuth(req, env) {
-  const token = req.headers.get("Authorization")?.replace("Bearer ", "");
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) return null;
+  if (authHeader.startsWith("Bearer ") && env.AUTH_JWT_SECRET) {
+    const jwtToken = authHeader.slice("Bearer ".length);
+    const payload = await verifyJwt(jwtToken, env.AUTH_JWT_SECRET);
+    if (payload) {
+      return { userId: payload.user_id };
+    }
+  }
+  const token = authHeader.replace("Bearer ", "");
   if (!token) return null;
   const sessionKey = `${SESSION_PREFIX}${token}`;
   const sessionStr = await env.SESSION_KV.get(sessionKey);
@@ -555,34 +599,54 @@ async function callDeepSeekTier2(tier1Report, env, loggerPrefix = "[tier2/genera
     console.warn(loggerPrefix + " DEEPSEEK_API_KEY not configured");
     return null;
   }
-  const prompt = `You are a professional beauty consultant. Based on the following face analysis report, provide detailed makeup and skincare recommendations.
+  const prompt = `You are a professional beauty consultant. Based on the following face analysis report, provide detailed personalized recommendations for each of the 6 makeup steps.
 
 Face Analysis Report:
 ${JSON.stringify(tier1Report, null, 2)}
 
-Output strict JSON only (no markdown):
+Rules for each step:
+- Step 01 (base makeup): based on skinType (skin condition)
+- Step 02 (eyebrows): based on eyebrowShape
+- Step 03 (eye makeup): combine eyeShape + threeFiveRatio
+- Step 04 (blush): based on symmetry
+- Step 05 (contour): based on faceShape
+- Step 06 (lip): combine personaTags + highlight to infer skin tone & lip shape recommendations
+
+Output strict JSON only (no markdown wrapping):
 {
-  "coreMakeup": "core makeup recommendation",
-  "reason": "why this style suits the user",
-  "style": "style tag",
-  "keyAreas": ["key area 1 advice", "key area 2 advice", "key area 3 advice", "key area 4 advice", "key area 5 advice", "key area 6 advice"],
-  "formula": "complete makeup formula",
+  "coreConclusion": "1-2 sentence overall style conclusion in Chinese",
+  "style": "style tag like \u6E29\u67D4\u77E5\u6027\u98CE",
+  "steps": [
+    {"step":"01","label":"\u5E95\u5986","key":"skinType","emoji":"\u{1F9F4}","analysis":"<personalized analysis for THIS user>","why":"<why this approach fits>","steps":"<step-by-step instructions separated by arrows>","tips":"<warnings separated by semicolons>","products":[{"name":"product name","desc":"reason","price":"price"}]},
+    {"step":"02","label":"\u7709\u5F62","key":"eyebrowShape","emoji":"\u270F\uFE0F","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]},
+    {"step":"03","label":"\u773C\u5986","key":"eyeShape","emoji":"\u{1F441}","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]},
+    {"step":"04","label":"\u816E\u7EA2","key":"symmetry","emoji":"\u{1F338}","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]},
+    {"step":"05","label":"\u4FEE\u5BB9","key":"faceShape","emoji":"\u{1FA9E}","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]},
+    {"step":"06","label":"\u5507\u5986","key":"lip","emoji":"\u{1F484}","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]}
+  ],
+  "overallTips": "1-2 sentence summary in Chinese",
   "productRecs": {
-    "faceShape": [{"name": "product", "desc": "reason"}],
-    "skinType": [{"name": "product", "desc": "reason"}],
-    "eyebrowShape": [{"name": "product", "desc": "reason"}],
-    "eyeShape": [{"name": "product", "desc": "reason"}],
-    "threeFiveRatio": [{"name": "product", "desc": "reason"}],
-    "symmetry": [{"name": "product", "desc": "reason"}]
+    "skinType": [{"name":"product name","desc":"reason"}],
+    "eyebrowShape": [{"name":"product name","desc":"reason"}],
+    "eyeShape": [{"name":"product name","desc":"reason"}],
+    "symmetry": [{"name":"product name","desc":"reason"}],
+    "faceShape": [{"name":"product name","desc":"reason"}],
+    "lip": [{"name":"product name","desc":"reason"}]
   }
-}`;
+}
+
+Important:
+1. Every step must be personalized to THIS specific user - reference their actual features
+2. Use '\u4F60\u662FX' format in analysis (e.g. '\u4F60\u662F\u5706\u8138' not '\u5706\u8138\u9002\u5408')
+3. Separate tips with Chinese semicolons (;)
+4. Recommend specific real products suitable for this user`;
   async function doCall(retryCount) {
     try {
       const resp = await fetch("https://api.deepseek.com/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: "deepseek-chat", messages: [{ role: "user", content: prompt }], max_tokens: 4e3, temperature: 0.3 }),
-        signal: AbortSignal.timeout(6e4)
+        body: JSON.stringify({ model: "deepseek-chat", messages: [{ role: "user", content: prompt }], max_tokens: 8e3, temperature: 0.3 }),
+        signal: AbortSignal.timeout(9e4)
       });
       if (!resp.ok) {
         const eb = await resp.text().catch(() => "");
@@ -1094,6 +1158,66 @@ var POST11 = /* @__PURE__ */ __name(async (context) => {
 var onRequestGet3 = GET3;
 var onRequestPost11 = POST11;
 
+// api/auth/auto-login.ts
+var GET4 = /* @__PURE__ */ __name(async (context) => {
+  const { request, env } = context;
+  const url = new URL(request.url);
+  const account = url.searchParams.get("account");
+  if (!account || typeof account !== "string") {
+    return new Response(JSON.stringify({ error: "\u8BF7\u8F93\u5165\u8D26\u53F7" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  }
+  const isEmail = account.includes("@");
+  if (isEmail) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(account)) return new Response(JSON.stringify({ error: "\u8BF7\u8F93\u5165\u6B63\u786E\u7684\u90AE\u7BB1\u5730\u5740" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  } else {
+    if (!/^1[3-9]\d{9}$/.test(account)) return new Response(JSON.stringify({ error: "\u8BF7\u8F93\u5165\u6B63\u786E\u7684\u624B\u673A\u53F7" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  }
+  const nowMs = Date.now();
+  const now = Math.floor(Date.now() / 1e3);
+  const user = isEmail ? await env.DB.prepare("SELECT id, password_hash FROM users WHERE email = ? LIMIT 1").bind(account).first() : await env.DB.prepare("SELECT id, password_hash FROM users WHERE phone = ? LIMIT 1").bind(account).first();
+  let userId;
+  let isNew;
+  let needPassword = false;
+  if (!user) {
+    userId = generateId();
+    const phone = isEmail ? "gen_" + userId : account;
+    const email = isEmail ? account : null;
+    await env.DB.prepare("INSERT INTO users (id, phone, email, created_at, updated_at, password_hash) VALUES (?, ?, ?, ?, ?, NULL)").bind(userId, phone, email, nowMs, nowMs).run();
+    isNew = true;
+  } else {
+    userId = user.id;
+    isNew = false;
+    needPassword = !!user.password_hash;
+  }
+  if (!isNew && user?.password_hash) {
+    const providedPassword = url.searchParams.get("password");
+    if (!providedPassword) {
+      return new Response(JSON.stringify({ needPassword: true, isNew: false, message: "\u8BF7\u8F93\u5165\u5BC6\u7801" }), {
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    const [storedHash, salt] = user.password_hash.split(":");
+    if (!storedHash || !salt) {
+      return new Response(JSON.stringify({ error: "\u8D26\u53F7\u6216\u5BC6\u7801\u9519\u8BEF" }), { status: 401, headers: { "Content-Type": "application/json" } });
+    }
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(providedPassword), "PBKDF2", false, ["deriveBits"]);
+    const derivedBits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: enc.encode(salt), iterations: 1e5, hash: "SHA-256" }, keyMaterial, 256);
+    const hashBuf = new Uint8Array(derivedBits);
+    const inputHash = btoa(String.fromCharCode(...hashBuf));
+    if (inputHash !== storedHash) {
+      return new Response(JSON.stringify({ error: "\u8D26\u53F7\u6216\u5BC6\u7801\u9519\u8BEF", needPassword: true, isNew: false }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+  }
+  const sessionId = generateId();
+  await env.SESSION_KV.put("session:" + sessionId, JSON.stringify({ userId, expiresAt: now + 7 * 24 * 60 * 60 }), { expirationTtl: 7 * 24 * 60 * 60 });
+  return new Response(JSON.stringify({ sessionId, isNew, needPassword }), { headers: { "Content-Type": "application/json" } });
+}, "GET");
+var onRequestGet4 = /* @__PURE__ */ __name(async (...args) => GET4(args[0]), "onRequestGet");
+
 // api/auth/login.ts
 var POST12 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
@@ -1472,8 +1596,182 @@ var onRequestPost16 = /* @__PURE__ */ __name(async (...args) => {
   return POST16(...args);
 }, "onRequestPost");
 
+// api/debug/crypto-test.ts
+var GET5 = /* @__PURE__ */ __name(async (context) => {
+  const enc = new TextEncoder();
+  const result = {};
+  try {
+    const key = await crypto.subtle.importKey("raw", enc.encode("test-secret"), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+    const sig = await crypto.subtle.sign("HMAC", key, enc.encode("hello"));
+    const valid = await crypto.subtle.verify("HMAC", key, sig, enc.encode("hello"));
+    result.test1 = { signed: true, verified: valid, sigLen: new Uint8Array(sig).length };
+  } catch (e) {
+    result.test1 = { error: String(e) };
+  }
+  try {
+    const k1 = await crypto.subtle.importKey("raw", enc.encode("test-secret"), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const sig = await crypto.subtle.sign("HMAC", k1, enc.encode("hello"));
+    const k2 = await crypto.subtle.importKey("raw", enc.encode("test-secret"), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const valid = await crypto.subtle.verify("HMAC", k2, sig, enc.encode("hello"));
+    result.test2 = { verified: valid, sigBytes: new Uint8Array(sig).length };
+  } catch (e) {
+    result.test2 = { error: String(e) };
+  }
+  try {
+    const key = await crypto.subtle.importKey("raw", enc.encode("test-secret"), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const knownSig = new Uint8Array([176, 52, 76, 103, 212, 191, 248, 208, 105, 140, 8, 187, 91, 99, 233, 206, 65, 109, 147, 39, 151, 94, 130, 218, 110, 146, 168, 127, 173, 82, 220, 29]);
+    const valid = await crypto.subtle.verify("HMAC", key, knownSig, enc.encode("hello"));
+    result.test3 = { verified: valid };
+  } catch (e) {
+    result.test3 = { error: String(e) };
+  }
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+}, "GET");
+var onRequestGet5 = /* @__PURE__ */ __name(async (...args) => GET5(...args), "onRequestGet");
+
+// api/debug/env-dump.ts
+var GET6 = /* @__PURE__ */ __name(async (context) => {
+  const { env } = context;
+  const keys = Object.keys(env);
+  const result = {};
+  for (const k of keys) {
+    const v = env[k];
+    result[k] = typeof v === "string" ? v.length > 4 ? v.slice(0, 4) + "..." + v.length : v : String(typeof v);
+  }
+  return new Response(JSON.stringify(result, null, 2), { headers: { "Content-Type": "application/json" } });
+}, "GET");
+var onRequestGet6 = /* @__PURE__ */ __name(async (...args) => GET6(...args), "onRequestGet");
+
+// api/debug/jwt-selftest.ts
+function b64urlDecode(str) {
+  let base64 = str.replace(/-/g, "+").replace(/_/g, "/");
+  while (base64.length % 4) base64 += "=";
+  return new Uint8Array(atob(base64).split("").map((c) => c.charCodeAt(0)));
+}
+__name(b64urlDecode, "b64urlDecode");
+var POST17 = /* @__PURE__ */ __name(async (context) => {
+  const { env, request } = context;
+  const { token } = await request.json();
+  const secret = env.AUTH_JWT_SECRET;
+  const enc = new TextEncoder();
+  if (!token) return new Response(JSON.stringify({ error: "no token" }), { status: 400 });
+  if (!secret) return new Response(JSON.stringify({ error: "no secret" }), { status: 500 });
+  const parts = token.split(".");
+  if (parts.length !== 3) return new Response(JSON.stringify({ error: "not 3 parts" }), { status: 400 });
+  const sigBytes = b64urlDecode(parts[2]);
+  const message = parts[0] + "." + parts[1];
+  const vkey = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+  const valid = await crypto.subtle.verify("HMAC", vkey, sigBytes, enc.encode(message));
+  const testReq = new Request(request.url, { headers: { Authorization: "Bearer " + token } });
+  const authUser = await requireAuth(testReq, env);
+  return new Response(JSON.stringify({ verifyResult: valid, authResult: authUser }), { headers: { "Content-Type": "application/json" } });
+}, "POST");
+var onRequestPost17 = /* @__PURE__ */ __name(async (...args) => POST17(...args), "onRequestPost");
+
+// api/debug/jwt-test.ts
+function b64urlDecode2(str) {
+  let base64 = str.replace(/-/g, "+").replace(/_/g, "/");
+  while (base64.length % 4) base64 += "=";
+  return new Uint8Array(atob(base64).split("").map((c) => c.charCodeAt(0)));
+}
+__name(b64urlDecode2, "b64urlDecode");
+var GET7 = /* @__PURE__ */ __name(async (context) => {
+  const { env } = context;
+  if (!env.DEBUG_MODE) {
+    return new Response(JSON.stringify({ error: "not available in production" }), { status: 404 });
+  }
+  const secret = env.AUTH_JWT_SECRET;
+  const enc = new TextEncoder();
+  let sigResult = "N/A";
+  let verifyResult = "N/A";
+  let tokenPayload = "N/A";
+  if (secret) {
+    try {
+      const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      const now = Math.floor(Date.now() / 1e3);
+      const payload = btoa(JSON.stringify({ user_id: "debug-test", iat: now, exp: now + 3600 })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      const message = header + "." + payload;
+      const skey = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+      const sig = await crypto.subtle.sign("HMAC", skey, enc.encode(message));
+      const sig64 = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      const token = message + "." + sig64;
+      const vkey = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+      const parts = token.split(".");
+      const valid = await crypto.subtle.verify("HMAC", vkey, b64urlDecode2(parts[2]), enc.encode(parts[0] + "." + parts[1]));
+      sigResult = "signed OK";
+      verifyResult = String(valid);
+      tokenPayload = payload;
+    } catch (e) {
+      sigResult = "ERROR: " + e.message;
+    }
+  } else {
+    sigResult = "NO_SECRET";
+  }
+  return new Response(JSON.stringify({
+    hasJwtSecret: !!secret,
+    sigResult,
+    verifyResult,
+    tokenPayload
+  }), { headers: { "Content-Type": "application/json" } });
+}, "GET");
+var onRequestGet7 = /* @__PURE__ */ __name(async (...args) => GET7(...args), "onRequestGet");
+
+// api/debug/jwt-verify-test.ts
+function b64urlDecode3(str) {
+  let base64 = str.replace(/-/g, "+").replace(/_/g, "/");
+  while (base64.length % 4) base64 += "=";
+  return new Uint8Array(atob(base64).split("").map((c) => c.charCodeAt(0)));
+}
+__name(b64urlDecode3, "b64urlDecode");
+var POST18 = /* @__PURE__ */ __name(async (context) => {
+  const { env, request } = context;
+  const { token } = await request.json();
+  if (!token) return new Response(JSON.stringify({ error: "no token" }), { status: 400 });
+  const secret = env.AUTH_JWT_SECRET;
+  const parts = token.split(".");
+  if (parts.length !== 3) return new Response(JSON.stringify({ error: "not 3 parts" }), { status: 400 });
+  const [header, body, signature] = parts;
+  const enc = new TextEncoder();
+  const sigBytes = b64urlDecode3(signature);
+  const message = header + "." + body;
+  let r1 = "skip";
+  let r2 = "skip";
+  let r3 = "skip";
+  if (secret) {
+    try {
+      const k1 = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+      r1 = await crypto.subtle.verify("HMAC", k1, sigBytes, enc.encode(message)) ? "true" : "false";
+    } catch (e) {
+      r1 = "err:" + e.message;
+    }
+    try {
+      const k2 = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+      r2 = await crypto.subtle.verify("HMAC", k2, sigBytes, enc.encode(message)) ? "true" : "false";
+    } catch (e) {
+      r2 = "err:" + e.message;
+    }
+    try {
+      const k3 = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+      const freshSig = await crypto.subtle.sign("HMAC", k3, enc.encode(message));
+      r3 = await crypto.subtle.verify("HMAC", k3, freshSig, enc.encode(message)) ? "true" : "false";
+    } catch (e) {
+      r3 = "err:" + e.message;
+    }
+  }
+  return new Response(JSON.stringify({
+    hasSecret: !!secret,
+    secretLen: secret?.length ?? 0,
+    sigBytesLen: sigBytes.length,
+    messageLen: message.length,
+    r1,
+    r2,
+    r3
+  }), { headers: { "Content-Type": "application/json" } });
+}, "POST");
+var onRequestPost18 = /* @__PURE__ */ __name(async (...args) => POST18(...args), "onRequestPost");
+
 // api/debug/sms-code.ts
-var GET4 = /* @__PURE__ */ __name(async (context) => {
+var GET8 = /* @__PURE__ */ __name(async (context) => {
   const { env, request } = context;
   if (!env.DEBUG_MODE) {
     return new Response(JSON.stringify({ error: "not available in production" }), { status: 404 });
@@ -1487,12 +1785,12 @@ var GET4 = /* @__PURE__ */ __name(async (context) => {
   const { code } = JSON.parse(stored);
   return new Response(JSON.stringify({ key, code }));
 }, "GET");
-var onRequestGet4 = /* @__PURE__ */ __name(async (...args) => {
-  return GET4(...args);
+var onRequestGet8 = /* @__PURE__ */ __name(async (...args) => {
+  return GET8(...args);
 }, "onRequestGet");
 
 // api/debug/taobao-test.ts
-var GET5 = /* @__PURE__ */ __name(async (context) => {
+var GET9 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   const user = await requireAuth(request, env);
   if (!user) return new Response(JSON.stringify({ error: "\u672A\u767B\u5F55" }), { status: 401 });
@@ -1524,12 +1822,12 @@ var GET5 = /* @__PURE__ */ __name(async (context) => {
   }
   return new Response(JSON.stringify(result, null, 2), { headers: { "Content-Type": "application/json" } });
 }, "GET");
-var onRequestGet5 = /* @__PURE__ */ __name(async (...args) => {
-  return GET5(...args);
+var onRequestGet9 = /* @__PURE__ */ __name(async (...args) => {
+  return GET9(...args);
 }, "onRequestGet");
 
 // api/influencers/apply.ts
-var POST17 = /* @__PURE__ */ __name(async (context) => {
+var POST19 = /* @__PURE__ */ __name(async (context) => {
   const { request, env, waitUntil } = context;
   const user = await requireAuth(request, env);
   if (!user) {
@@ -1741,8 +2039,8 @@ Return a JSON object with these exact keys:
   }
 }
 __name(runFaceAnalysis, "runFaceAnalysis");
-var onRequestPost17 = /* @__PURE__ */ __name(async (...args) => {
-  return POST17(...args);
+var onRequestPost19 = /* @__PURE__ */ __name(async (...args) => {
+  return POST19(...args);
 }, "onRequestPost");
 
 // api/influencers/match.ts
@@ -1750,7 +2048,7 @@ var FACE_DIMS = ["faceShape", "skinType", "eyebrowShape", "eyeShape", "threeFive
 var FACE_WEIGHT = 0.5;
 var STYLE_WEIGHT = 0.3;
 var DEMAND_WEIGHT = 0.1;
-var GET6 = /* @__PURE__ */ __name(async (context) => {
+var GET10 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   const user = await requireAuth(request, env);
   if (!user) {
@@ -1845,12 +2143,12 @@ var GET6 = /* @__PURE__ */ __name(async (context) => {
     headers: { "Content-Type": "application/json" }
   });
 }, "GET");
-var onRequestGet6 = /* @__PURE__ */ __name(async (...args) => {
-  return GET6(...args);
+var onRequestGet10 = /* @__PURE__ */ __name(async (...args) => {
+  return GET10(...args);
 }, "onRequestGet");
 
 // api/influencers/mine.ts
-var GET7 = /* @__PURE__ */ __name(async (context) => {
+var GET11 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   const user = await requireAuth(request, env);
   if (!user) {
@@ -1883,12 +2181,12 @@ var GET7 = /* @__PURE__ */ __name(async (context) => {
     headers: { "Content-Type": "application/json" }
   });
 }, "GET");
-var onRequestGet7 = /* @__PURE__ */ __name(async (...args) => {
-  return GET7(...args);
+var onRequestGet11 = /* @__PURE__ */ __name(async (...args) => {
+  return GET11(...args);
 }, "onRequestGet");
 
 // api/orders/create.ts
-var POST18 = /* @__PURE__ */ __name(async (context) => {
+var POST20 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   const user = await requireAuth(request, env);
   if (!user) {
@@ -1917,12 +2215,12 @@ var POST18 = /* @__PURE__ */ __name(async (context) => {
     { headers: { "Content-Type": "application/json" } }
   );
 }, "POST");
-var onRequestPost18 = /* @__PURE__ */ __name(async (...args) => {
-  return POST18(...args);
+var onRequestPost20 = /* @__PURE__ */ __name(async (...args) => {
+  return POST20(...args);
 }, "onRequestPost");
 
 // api/orders/mock-pay-confirm.ts
-var POST19 = /* @__PURE__ */ __name(async (context) => {
+var POST21 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   const body = await request.json();
   const { orderId } = body;
@@ -1983,12 +2281,12 @@ function generateRedeemCode() {
   return code;
 }
 __name(generateRedeemCode, "generateRedeemCode");
-var onRequestPost19 = /* @__PURE__ */ __name(async (...args) => {
-  return POST19(...args);
+var onRequestPost21 = /* @__PURE__ */ __name(async (...args) => {
+  return POST21(...args);
 }, "onRequestPost");
 
 // api/reports/mine.ts
-var GET8 = /* @__PURE__ */ __name(async (context) => {
+var GET12 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   console.log("[mine] context keys=", Object.keys(context), "request=", typeof context.request);
   const user = await requireAuth(request, env);
@@ -2058,21 +2356,21 @@ var GET8 = /* @__PURE__ */ __name(async (context) => {
     headers: { "Content-Type": "application/json" }
   });
 }, "GET");
-var onRequestGet8 = /* @__PURE__ */ __name(async (...args) => {
-  return GET8(...args);
+var onRequestGet12 = /* @__PURE__ */ __name(async (...args) => {
+  return GET12(...args);
 }, "onRequestGet");
 
 // api/test/get-test.ts
-var GET9 = /* @__PURE__ */ __name(async (context) => {
+var GET13 = /* @__PURE__ */ __name(async (context) => {
   return new Response(JSON.stringify({ message: "hello from get-test" }), {
     status: 200,
     headers: { "Content-Type": "application/json" }
   });
 }, "GET");
-var onRequestGet9 = /* @__PURE__ */ __name(async (...args) => GET9(args[0]), "onRequestGet");
+var onRequestGet13 = /* @__PURE__ */ __name(async (...args) => GET13(args[0]), "onRequestGet");
 
 // api/test/md5-test.ts
-var GET10 = /* @__PURE__ */ __name(async (context) => {
+var GET14 = /* @__PURE__ */ __name(async (context) => {
   const { env, request } = context;
   await requireAuth(request, env);
   let md5Result = "not_available";
@@ -2089,10 +2387,10 @@ var GET10 = /* @__PURE__ */ __name(async (context) => {
     headers: { "Content-Type": "application/json" }
   });
 }, "GET");
-var onRequestGet10 = /* @__PURE__ */ __name(async (...args) => GET10(args[0]), "onRequestGet");
+var onRequestGet14 = /* @__PURE__ */ __name(async (...args) => GET14(args[0]), "onRequestGet");
 
 // api/test/r2-check.ts
-var GET11 = /* @__PURE__ */ __name(async (context) => {
+var GET15 = /* @__PURE__ */ __name(async (context) => {
   const { env } = context;
   const key = "face-photos/user-test/tier1-test-001.jpg";
   const obj = await env.R2_TEMP.get(key);
@@ -2104,10 +2402,10 @@ var GET11 = /* @__PURE__ */ __name(async (context) => {
     size: obj?.size
   }));
 }, "GET");
-var onRequestGet11 = /* @__PURE__ */ __name(async (...args) => GET11(...args), "onRequestGet");
+var onRequestGet15 = /* @__PURE__ */ __name(async (...args) => GET15(...args), "onRequestGet");
 
 // api/test/tb-debug.ts
-var GET12 = /* @__PURE__ */ __name(async (context) => {
+var GET16 = /* @__PURE__ */ __name(async (context) => {
   const { env, request } = context;
   const user = await requireAuth(request, env);
   if (!user) return new Response(JSON.stringify({ error: "\u672A\u767B\u5F55" }), { status: 401 });
@@ -2132,10 +2430,10 @@ var GET12 = /* @__PURE__ */ __name(async (context) => {
     return new Response(JSON.stringify({ error: String(e), keyword }), { status: 500 });
   }
 }, "GET");
-var onRequestGet12 = /* @__PURE__ */ __name(async (...args) => GET12(args[0]), "onRequestGet");
+var onRequestGet16 = /* @__PURE__ */ __name(async (...args) => GET16(args[0]), "onRequestGet");
 
 // api/test/unlock-debug.ts
-var POST20 = /* @__PURE__ */ __name(async (context) => {
+var POST22 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   const body = await request.json();
   const { reportId } = body;
@@ -2202,7 +2500,7 @@ var POST20 = /* @__PURE__ */ __name(async (context) => {
   }
   return new Response(JSON.stringify({ log }));
 }, "POST");
-var onRequestPost20 = /* @__PURE__ */ __name(async (...args) => POST20(...args), "onRequestPost");
+var onRequestPost22 = /* @__PURE__ */ __name(async (...args) => POST22(...args), "onRequestPost");
 
 // _image_utils.ts
 var MIN_DIM = 512;
@@ -2298,7 +2596,7 @@ async function resizeBase64IfNeeded(dataUrl, maxWidth = MAX_SIDE, minWidth = MIN
 __name(resizeBase64IfNeeded, "resizeBase64IfNeeded");
 
 // api/tier1/analyze.ts
-var POST21 = /* @__PURE__ */ __name(async (context) => {
+var POST23 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   const authUser = await requireAuth(request, env);
   if (!authUser) {
@@ -2349,6 +2647,56 @@ var POST21 = /* @__PURE__ */ __name(async (context) => {
       console.error("[tier1/analyze] R2 upload failed, continuing without photo reference:", e);
       facePhotoKey = null;
     }
+  }
+  let faceCount = -1;
+  if (photoBase64) {
+    const apiKey = env.DASHSCOPE_API_KEY;
+    if (apiKey) {
+      const faceCheckPrompt = `Count the number of clearly visible human faces in this image. Reply with ONLY a single integer (e.g. 0, 1, 2, 3...). Do not write any other text.`;
+      try {
+        const faceCheckResp = await fetch("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model: "qwen-vl-max",
+            messages: [{ role: "user", content: [{ type: "text", text: faceCheckPrompt }, { type: "image_url", image_url: { url: photoBase64 } }] }],
+            max_tokens: 10,
+            temperature: 0
+          }),
+          signal: AbortSignal.timeout(15e3)
+        });
+        if (faceCheckResp.ok) {
+          const faceData = await faceCheckResp.json();
+          const faceText = faceData?.choices?.[0]?.message?.content?.trim() ?? "";
+          const parsed = parseInt(faceText, 10);
+          if (!isNaN(parsed) && parsed >= 0) {
+            faceCount = parsed;
+            console.log(`[tier1/analyze] Face count check: ${faceCount} face(s) detected`);
+          } else {
+            console.warn(`[tier1/analyze] Face count parse failed, got: "${faceText}", defaulting to -1`);
+          }
+        } else {
+          console.warn(`[tier1/analyze] Face count check API error ${faceCheckResp.status}, skipping validation`);
+        }
+      } catch (e) {
+        console.warn("[tier1/analyze] Face count check timeout/error, continuing without validation:", e);
+      }
+    }
+  }
+  if (faceCount === 0) {
+    return new Response(
+      JSON.stringify({ error: "no_face_detected", message: "\u672A\u68C0\u6D4B\u5230\u4EBA\u8138\uFF0C\u8BF7\u4E0A\u4F20\u6E05\u6670\u7684\u6B63\u8138\u7167\u7247" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+  if (faceCount >= 2) {
+    return new Response(
+      JSON.stringify({ error: "multiple_faces", message: "\u68C0\u6D4B\u5230\u591A\u5F20\u4EBA\u8138\uFF0C\u8BF7\u4E0A\u4F20\u4EC5\u5305\u542B\u60A8\u672C\u4EBA\u7684\u7167\u7247" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+  if (faceCount === 1) {
+    console.log("[tier1/analyze] Face count validated: exactly 1 face, proceeding to analysis");
   }
   let textDesc = "";
   if (photoBase64) {
@@ -2466,12 +2814,12 @@ Output strict JSON only, with these exact keys:
   await saveReport(report);
   return new Response(JSON.stringify({ report, reportId }), { headers: { "Content-Type": "application/json" } });
 }, "POST");
-var onRequestPost21 = /* @__PURE__ */ __name(async (...args) => {
-  return POST21(...args);
+var onRequestPost23 = /* @__PURE__ */ __name(async (...args) => {
+  return POST23(...args);
 }, "onRequestPost");
 
 // api/tier1/confirm-referral.ts
-var POST22 = /* @__PURE__ */ __name(async (context) => {
+var POST24 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   const user = await requireAuth(request, env);
   if (!user) {
@@ -2504,12 +2852,12 @@ var POST22 = /* @__PURE__ */ __name(async (context) => {
     headers: { "Content-Type": "application/json" }
   });
 }, "POST");
-var onRequestPost22 = /* @__PURE__ */ __name(async (...args) => {
-  return POST22(...args);
+var onRequestPost24 = /* @__PURE__ */ __name(async (...args) => {
+  return POST24(...args);
 }, "onRequestPost");
 
 // api/tier1/referral-status.ts
-var GET13 = /* @__PURE__ */ __name(async ({ request, env }, _ctx) => {
+var GET17 = /* @__PURE__ */ __name(async ({ request, env }, _ctx) => {
   const url = new URL(request.url);
   const token = url.searchParams.get("token");
   if (!token) {
@@ -2527,12 +2875,12 @@ var GET13 = /* @__PURE__ */ __name(async ({ request, env }, _ctx) => {
     { headers: { "Content-Type": "application/json" } }
   );
 }, "GET");
-var onRequestGet13 = /* @__PURE__ */ __name(async (...args) => {
-  return GET13(...args);
+var onRequestGet17 = /* @__PURE__ */ __name(async (...args) => {
+  return GET17(...args);
 }, "onRequestGet");
 
 // api/tier1/share.ts
-var POST23 = /* @__PURE__ */ __name(async (context) => {
+var POST25 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   const user = await requireAuth(request, env);
   if (!user) {
@@ -2633,12 +2981,12 @@ async function triggerTier2Generation(tier1ReportId, tier2Id, env) {
   }
 }
 __name(triggerTier2Generation, "triggerTier2Generation");
-var onRequestPost23 = /* @__PURE__ */ __name(async (...args) => {
-  return POST23(...args);
+var onRequestPost25 = /* @__PURE__ */ __name(async (...args) => {
+  return POST25(...args);
 }, "onRequestPost");
 
 // api/tier1/validate.ts
-var GET14 = /* @__PURE__ */ __name(async (context) => {
+var GET18 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   const user = await requireAuth(request, env);
   if (!user) {
@@ -2663,12 +3011,12 @@ var GET14 = /* @__PURE__ */ __name(async (context) => {
     { headers: { "Content-Type": "application/json" } }
   );
 }, "GET");
-var onRequestGet14 = /* @__PURE__ */ __name(async (...args) => {
-  return GET14(...args);
+var onRequestGet18 = /* @__PURE__ */ __name(async (...args) => {
+  return GET18(...args);
 }, "onRequestGet");
 
 // api/tier2/generate.ts
-var POST24 = /* @__PURE__ */ __name(async (context) => {
+var POST26 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   const user = await requireAuth(request, env);
   if (!user) {
@@ -2762,12 +3110,12 @@ async function generateTier2Async(tier1Report, tier2Id, env) {
   }
 }
 __name(generateTier2Async, "generateTier2Async");
-var onRequestPost24 = /* @__PURE__ */ __name(async (...args) => {
-  return POST24(...args);
+var onRequestPost26 = /* @__PURE__ */ __name(async (...args) => {
+  return POST26(...args);
 }, "onRequestPost");
 
 // api/tier2/status.ts
-var GET15 = /* @__PURE__ */ __name(async (context) => {
+var GET19 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   const user = await requireAuth(request, env);
   if (!user) {
@@ -2834,8 +3182,8 @@ var GET15 = /* @__PURE__ */ __name(async (context) => {
   }
   return new Response(JSON.stringify({ generationStatus: "not_found" }), { headers: { "Content-Type": "application/json" } });
 }, "GET");
-var onRequestGet15 = /* @__PURE__ */ __name(async (...args) => {
-  return GET15(...args);
+var onRequestGet19 = /* @__PURE__ */ __name(async (...args) => {
+  return GET19(...args);
 }, "onRequestGet");
 async function generateTier2Async2(tier1Report, tier2Id, env) {
   try {
@@ -2855,7 +3203,7 @@ async function generateTier2Async2(tier1Report, tier2Id, env) {
 __name(generateTier2Async2, "generateTier2Async");
 
 // api/tier2/unlock-by-ad.ts
-var POST25 = /* @__PURE__ */ __name(async (context) => {
+var POST27 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   const user = await requireAuth(request, env);
   if (!user) {
@@ -2904,12 +3252,12 @@ var POST25 = /* @__PURE__ */ __name(async (context) => {
     { headers: { "Content-Type": "application/json" } }
   );
 }, "POST");
-var onRequestPost25 = /* @__PURE__ */ __name(async (...args) => {
-  return POST25(...args);
+var onRequestPost27 = /* @__PURE__ */ __name(async (...args) => {
+  return POST27(...args);
 }, "onRequestPost");
 
 // api/tier2/unlock-image.ts
-var POST26 = /* @__PURE__ */ __name(async (context) => {
+var POST28 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   const user = await requireAuth(request, env);
   if (!user) {
@@ -3156,12 +3504,12 @@ async function pollTaskResult(apiKey, taskId) {
   return null;
 }
 __name(pollTaskResult, "pollTaskResult");
-var onRequestPost26 = /* @__PURE__ */ __name(async (...args) => {
-  return POST26(...args);
+var onRequestPost28 = /* @__PURE__ */ __name(async (...args) => {
+  return POST28(...args);
 }, "onRequestPost");
 
 // api/tier3/generate.ts
-var POST27 = /* @__PURE__ */ __name(async (context) => {
+var POST29 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   const user = await requireAuth(request, env);
   if (!user) {
@@ -3327,12 +3675,12 @@ Guidelines:
   }
 }
 __name(callDeepSeekTier3, "callDeepSeekTier3");
-var onRequestPost27 = /* @__PURE__ */ __name(async (...args) => {
-  return POST27(...args);
+var onRequestPost29 = /* @__PURE__ */ __name(async (...args) => {
+  return POST29(...args);
 }, "onRequestPost");
 
 // api/tier3/questionnaire-options.ts
-var GET16 = /* @__PURE__ */ __name(async (context) => {
+var GET20 = /* @__PURE__ */ __name(async (context) => {
   const { env } = context;
   await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS questionnaire_options (
@@ -3356,10 +3704,10 @@ var GET16 = /* @__PURE__ */ __name(async (context) => {
     headers: { "Content-Type": "application/json" }
   });
 }, "GET");
-var onRequestGet16 = GET16;
+var onRequestGet20 = GET20;
 
 // api/tier3/redeem.ts
-var POST28 = /* @__PURE__ */ __name(async (context) => {
+var POST30 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   const user = await requireAuth(request, env);
   if (!user) {
@@ -3399,12 +3747,12 @@ var POST28 = /* @__PURE__ */ __name(async (context) => {
     { headers: { "Content-Type": "application/json" } }
   );
 }, "POST");
-var onRequestPost28 = /* @__PURE__ */ __name(async (...args) => {
-  return POST28(...args);
+var onRequestPost30 = /* @__PURE__ */ __name(async (...args) => {
+  return POST30(...args);
 }, "onRequestPost");
 
 // api/tier3/token-status.ts
-var GET17 = /* @__PURE__ */ __name(async (context) => {
+var GET21 = /* @__PURE__ */ __name(async (context) => {
   const { request, env } = context;
   const user = await requireAuth(request, env);
   if (!user) {
@@ -3422,10 +3770,10 @@ var GET17 = /* @__PURE__ */ __name(async (context) => {
     { headers: { "Content-Type": "application/json" } }
   );
 }, "GET");
-var onRequestGet17 = GET17;
+var onRequestGet21 = GET21;
 
 // api/config/[key].ts
-var GET18 = /* @__PURE__ */ __name(async (context) => {
+var GET22 = /* @__PURE__ */ __name(async (context) => {
   const { env, params } = context;
   const key = params?.key;
   if (!key) {
@@ -3451,6 +3799,9 @@ var GET18 = /* @__PURE__ */ __name(async (context) => {
   await env.DB.prepare(
     `INSERT OR IGNORE INTO app_config (key, value, updated_at) VALUES ('sms_login_enabled', 'false', ?)`
   ).bind(now).run();
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO app_config (key, value, updated_at) VALUES ('tier2_btn_color', '#db2777', ?)`
+  ).bind(now).run();
   const row = await env.DB.prepare(
     "SELECT key, value, updated_at FROM app_config WHERE key = ? LIMIT 1"
   ).bind(key).first();
@@ -3464,12 +3815,12 @@ var GET18 = /* @__PURE__ */ __name(async (context) => {
     headers: { "Content-Type": "application/json" }
   });
 }, "GET");
-var onRequestGet18 = /* @__PURE__ */ __name(async (...args) => {
-  return GET18(...args);
+var onRequestGet22 = /* @__PURE__ */ __name(async (...args) => {
+  return GET22(...args);
 }, "onRequestGet");
 
 // api/r2-perm/[key].ts
-var GET19 = /* @__PURE__ */ __name(async (context) => {
+var GET23 = /* @__PURE__ */ __name(async (context) => {
   const { env, params } = context;
   const key = params?.key;
   if (!key) {
@@ -3511,24 +3862,24 @@ var GET19 = /* @__PURE__ */ __name(async (context) => {
     });
   }
 }, "GET");
-var onRequestGet19 = /* @__PURE__ */ __name(async (...args) => {
-  return GET19(...args);
+var onRequestGet23 = /* @__PURE__ */ __name(async (...args) => {
+  return GET23(...args);
 }, "onRequestGet");
 
 // api/test-route/[param].ts
-var GET20 = /* @__PURE__ */ __name(async (context) => {
+var GET24 = /* @__PURE__ */ __name(async (context) => {
   const { params } = context;
   const p = params?.param;
   return new Response(JSON.stringify({ received: p, ok: true }), {
     headers: { "Content-Type": "application/json" }
   });
 }, "GET");
-var onRequestGet20 = /* @__PURE__ */ __name(async (...args) => {
-  return GET20(...args);
+var onRequestGet24 = /* @__PURE__ */ __name(async (...args) => {
+  return GET24(...args);
 }, "onRequestGet");
 
 // api/r2-proxy.ts
-var GET21 = /* @__PURE__ */ __name(async (context) => {
+var GET25 = /* @__PURE__ */ __name(async (context) => {
   const { env, request } = context;
   const url = new URL(request.url);
   const key = url.searchParams.get("key");
@@ -3573,9 +3924,34 @@ var GET21 = /* @__PURE__ */ __name(async (context) => {
     });
   }
 }, "GET");
-var onRequestGet21 = /* @__PURE__ */ __name(async (...args) => GET21(...args), "onRequestGet");
+var onRequestGet25 = /* @__PURE__ */ __name(async (...args) => GET25(...args), "onRequestGet");
 
-// ../.wrangler/tmp/pages-EkHeXK/functionsRoutes-0.785823368668962.mjs
+// [[catchall]].ts
+var onRequest = /* @__PURE__ */ __name(async (context) => {
+  const { env, request } = context;
+  const url = new URL(request.url);
+  if (url.pathname.startsWith("/api/")) {
+    return null;
+  }
+  try {
+    const asset = await env.ASSETS.fetch(request);
+    if (asset.status === 200) return asset;
+  } catch {
+  }
+  const spaRoutes = ["/", "/tier1-result", "/capture", "/home", "/report", "/influencer-apply", "/admin/login", "/admin/dashboard"];
+  const isKnownSpaRoute = spaRoutes.includes(url.pathname) || url.pathname.startsWith("/report/");
+  if (isKnownSpaRoute) {
+    try {
+      const indexReq = new Request(new URL("/", request.url));
+      const indexResp = await env.ASSETS.fetch(indexReq);
+      if (indexResp.status === 200) return indexResp;
+    } catch {
+    }
+  }
+  return new Response("Not found", { status: 404 });
+}, "onRequest");
+
+// ../.wrangler/tmp/pages-PGjYcz/functionsRoutes-0.7812171765843212.mjs
 var routes = [
   {
     routePath: "/api/admin/influencers/:id/approve",
@@ -3676,6 +4052,13 @@ var routes = [
     modules: [onRequestPost11]
   },
   {
+    routePath: "/api/auth/auto-login",
+    mountPath: "/api/auth",
+    method: "GET",
+    middlewares: [],
+    modules: [onRequestGet4]
+  },
+  {
     routePath: "/api/auth/login",
     mountPath: "/api/auth",
     method: "POST",
@@ -3711,214 +4094,256 @@ var routes = [
     modules: [onRequestPost16]
   },
   {
-    routePath: "/api/debug/sms-code",
-    mountPath: "/api/debug",
-    method: "GET",
-    middlewares: [],
-    modules: [onRequestGet4]
-  },
-  {
-    routePath: "/api/debug/taobao-test",
+    routePath: "/api/debug/crypto-test",
     mountPath: "/api/debug",
     method: "GET",
     middlewares: [],
     modules: [onRequestGet5]
   },
   {
+    routePath: "/api/debug/env-dump",
+    mountPath: "/api/debug",
+    method: "GET",
+    middlewares: [],
+    modules: [onRequestGet6]
+  },
+  {
+    routePath: "/api/debug/jwt-selftest",
+    mountPath: "/api/debug",
+    method: "POST",
+    middlewares: [],
+    modules: [onRequestPost17]
+  },
+  {
+    routePath: "/api/debug/jwt-test",
+    mountPath: "/api/debug",
+    method: "GET",
+    middlewares: [],
+    modules: [onRequestGet7]
+  },
+  {
+    routePath: "/api/debug/jwt-verify-test",
+    mountPath: "/api/debug",
+    method: "POST",
+    middlewares: [],
+    modules: [onRequestPost18]
+  },
+  {
+    routePath: "/api/debug/sms-code",
+    mountPath: "/api/debug",
+    method: "GET",
+    middlewares: [],
+    modules: [onRequestGet8]
+  },
+  {
+    routePath: "/api/debug/taobao-test",
+    mountPath: "/api/debug",
+    method: "GET",
+    middlewares: [],
+    modules: [onRequestGet9]
+  },
+  {
     routePath: "/api/influencers/apply",
     mountPath: "/api/influencers",
     method: "POST",
     middlewares: [],
-    modules: [onRequestPost17]
+    modules: [onRequestPost19]
   },
   {
     routePath: "/api/influencers/match",
     mountPath: "/api/influencers",
     method: "GET",
     middlewares: [],
-    modules: [onRequestGet6]
+    modules: [onRequestGet10]
   },
   {
     routePath: "/api/influencers/mine",
     mountPath: "/api/influencers",
     method: "GET",
     middlewares: [],
-    modules: [onRequestGet7]
+    modules: [onRequestGet11]
   },
   {
     routePath: "/api/orders/create",
     mountPath: "/api/orders",
     method: "POST",
     middlewares: [],
-    modules: [onRequestPost18]
+    modules: [onRequestPost20]
   },
   {
     routePath: "/api/orders/mock-pay-confirm",
     mountPath: "/api/orders",
     method: "POST",
     middlewares: [],
-    modules: [onRequestPost19]
+    modules: [onRequestPost21]
   },
   {
     routePath: "/api/reports/mine",
     mountPath: "/api/reports",
     method: "GET",
     middlewares: [],
-    modules: [onRequestGet8]
+    modules: [onRequestGet12]
   },
   {
     routePath: "/api/test/get-test",
     mountPath: "/api/test",
     method: "GET",
     middlewares: [],
-    modules: [onRequestGet9]
+    modules: [onRequestGet13]
   },
   {
     routePath: "/api/test/md5-test",
     mountPath: "/api/test",
     method: "GET",
     middlewares: [],
-    modules: [onRequestGet10]
+    modules: [onRequestGet14]
   },
   {
     routePath: "/api/test/r2-check",
     mountPath: "/api/test",
     method: "GET",
     middlewares: [],
-    modules: [onRequestGet11]
+    modules: [onRequestGet15]
   },
   {
     routePath: "/api/test/tb-debug",
     mountPath: "/api/test",
     method: "GET",
     middlewares: [],
-    modules: [onRequestGet12]
+    modules: [onRequestGet16]
   },
   {
     routePath: "/api/test/unlock-debug",
     mountPath: "/api/test",
     method: "POST",
     middlewares: [],
-    modules: [onRequestPost20]
+    modules: [onRequestPost22]
   },
   {
     routePath: "/api/tier1/analyze",
     mountPath: "/api/tier1",
     method: "POST",
     middlewares: [],
-    modules: [onRequestPost21]
+    modules: [onRequestPost23]
   },
   {
     routePath: "/api/tier1/confirm-referral",
     mountPath: "/api/tier1",
     method: "POST",
     middlewares: [],
-    modules: [onRequestPost22]
+    modules: [onRequestPost24]
   },
   {
     routePath: "/api/tier1/referral-status",
     mountPath: "/api/tier1",
     method: "GET",
     middlewares: [],
-    modules: [onRequestGet13]
+    modules: [onRequestGet17]
   },
   {
     routePath: "/api/tier1/share",
     mountPath: "/api/tier1",
     method: "POST",
     middlewares: [],
-    modules: [onRequestPost23]
+    modules: [onRequestPost25]
   },
   {
     routePath: "/api/tier1/validate",
     mountPath: "/api/tier1",
     method: "GET",
     middlewares: [],
-    modules: [onRequestGet14]
+    modules: [onRequestGet18]
   },
   {
     routePath: "/api/tier2/generate",
     mountPath: "/api/tier2",
     method: "POST",
     middlewares: [],
-    modules: [onRequestPost24]
+    modules: [onRequestPost26]
   },
   {
     routePath: "/api/tier2/status",
     mountPath: "/api/tier2",
     method: "GET",
     middlewares: [],
-    modules: [onRequestGet15]
+    modules: [onRequestGet19]
   },
   {
     routePath: "/api/tier2/unlock-by-ad",
     mountPath: "/api/tier2",
     method: "POST",
     middlewares: [],
-    modules: [onRequestPost25]
+    modules: [onRequestPost27]
   },
   {
     routePath: "/api/tier2/unlock-image",
     mountPath: "/api/tier2",
     method: "POST",
     middlewares: [],
-    modules: [onRequestPost26]
+    modules: [onRequestPost28]
   },
   {
     routePath: "/api/tier3/generate",
     mountPath: "/api/tier3",
     method: "POST",
     middlewares: [],
-    modules: [onRequestPost27]
+    modules: [onRequestPost29]
   },
   {
     routePath: "/api/tier3/questionnaire-options",
     mountPath: "/api/tier3",
     method: "GET",
     middlewares: [],
-    modules: [onRequestGet16]
+    modules: [onRequestGet20]
   },
   {
     routePath: "/api/tier3/redeem",
     mountPath: "/api/tier3",
     method: "POST",
     middlewares: [],
-    modules: [onRequestPost28]
+    modules: [onRequestPost30]
   },
   {
     routePath: "/api/tier3/token-status",
     mountPath: "/api/tier3",
     method: "GET",
     middlewares: [],
-    modules: [onRequestGet17]
+    modules: [onRequestGet21]
   },
   {
     routePath: "/api/config/:key",
     mountPath: "/api/config",
     method: "GET",
     middlewares: [],
-    modules: [onRequestGet18]
+    modules: [onRequestGet22]
   },
   {
     routePath: "/api/r2-perm/:key",
     mountPath: "/api/r2-perm",
     method: "GET",
     middlewares: [],
-    modules: [onRequestGet19]
+    modules: [onRequestGet23]
   },
   {
     routePath: "/api/test-route/:param",
     mountPath: "/api/test-route",
     method: "GET",
     middlewares: [],
-    modules: [onRequestGet20]
+    modules: [onRequestGet24]
   },
   {
     routePath: "/api/r2-proxy",
     mountPath: "/api",
     method: "GET",
     middlewares: [],
-    modules: [onRequestGet21]
+    modules: [onRequestGet25]
+  },
+  {
+    routePath: "/:catchall*",
+    mountPath: "/",
+    method: "",
+    middlewares: [],
+    modules: [onRequest]
   }
 ];
 

@@ -5,11 +5,19 @@ compatibility_date = "2024-11-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "beauty-app"
-database_id = "dd57c4d5-2ce3-47b6-9a7a-f02afada99d3"
+database_id = "597322ae-1bef-45d5-90bf-7606c92c524c"
+
+[[r2_buckets]]
+binding = "R2_TEMP"
+bucket_name = "beauty-temp"
+
+[[r2_buckets]]
+binding = "R2_PERM"
+bucket_name = "beauty-perm"
 
 [[kv_namespaces]]
 binding = "SESSION_KV"
-id = "fee75d402e0f47c581b9f5d6661fd7f7"
+id = "9f3105f5547642b693452f5f740f8e2c"
 
 [vars]
 ADMIN_USERNAME = "15961962243"
