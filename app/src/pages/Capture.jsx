@@ -59,8 +59,13 @@ function resizeDataUrl(dataUrl, maxSide = 1024) {
 }
 
 async function callAnalyze(base64, token, signal) {
+  // Fallback: read from localStorage in case AuthContext token is not yet available
+  const effectiveToken = token || (typeof localStorage !== 'undefined' ? localStorage.getItem('session_token') : null);
   if (typeof base64 !== 'string' || !base64) {
     throw new Error('无效的图片数据，请重新选择照片');
+  }
+  if (!effectiveToken) {
+    throw new Error('请先登录');
   }
   let blob;
   if (base64.startsWith('data:')) {
@@ -75,7 +80,7 @@ async function callAnalyze(base64, token, signal) {
   form.append('photo', blob, 'capture.jpg');
   const res = await fetch(BASE + '/tier1/analyze', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${effectiveToken}` },
     body: form,
     signal,
   });
