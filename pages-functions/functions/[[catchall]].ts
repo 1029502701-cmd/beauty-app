@@ -3,6 +3,12 @@ import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
 export const onRequest: FrameworkCallbackOptions["onRequest"] = async (context) => {
   const { env, request } = context;
   const url = new URL(request.url);
+
+  // Let API routes through to their dedicated handlers
+  if (url.pathname.startsWith("/api/")) {
+    return null;
+  }
+
   // First try to serve as static asset
   try {
     const asset = await env.ASSETS.fetch(request);
