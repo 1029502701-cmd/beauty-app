@@ -33,13 +33,13 @@ jobs:
 
       - name: Merge frontend into dist
         run: |
-          mkdir -p dist/assets
-          cp -r ../app/dist/assets/* dist/assets/ || true
-          cp ../app/dist/index.html dist/index.html || true
-          cp ../app/dist/favicon.svg dist/ 2>/dev/null || true
-          cp ../app/dist/icons.svg dist/ 2>/dev/null || true
-          cp ../app/dist/_curated-products.json dist/ 2>/dev/null || true
-          cp ../app/dist/mock-pay.html dist/ 2>/dev/null || true
+          mkdir -p pages-functions/dist/assets
+          cp -r app/dist/assets/* pages-functions/dist/assets/ || true
+          cp app/dist/index.html pages-functions/dist/index.html || true
+          cp app/dist/favicon.svg pages-functions/dist/ 2>/dev/null || true
+          cp app/dist/icons.svg pages-functions/dist/ 2>/dev/null || true
+          cp app/dist/_curated-products.json pages-functions/dist/ 2>/dev/null || true
+          cp app/dist/mock-pay.html pages-functions/dist/ 2>/dev/null || true
 
       - name: Deploy
         run: |
