@@ -13,7 +13,7 @@ import AdminLogin from './pages/AdminLogin.jsx';
 import AdminDashboard from './pages/AdminDashboard.jsx';
 
 function Router() {
-  const { token, loading, logout, login } = useContext(AuthContext);
+    const { token, loading, logout, login } = useContext(AuthContext);
   const [page, setPage] = useState(() => {
     const saved = sessionStorage.getItem('auth_redirect_from');
     const path = window.location.pathname;
@@ -33,6 +33,13 @@ function Router() {
 
   // tokenProcessRef MUST be declared BEFORE handleLogout (const is not hoisted)
   const tokenProcessRef = useRef(false);
+
+  // Extract token from URL at render time (synchronous, before any effect runs)
+  // Both effects read from this ref to avoid stale-closure / URL-modification race
+  const callbackTokenRef = useRef(null);
+  if (callbackTokenRef.current === null) {
+    callbackTokenRef.current = new URL(window.location.href).searchParams.get('token');
+  }
 
   const handleLogin = (redirectFrom) => {
     const target = redirectFrom || '/home';
@@ -56,19 +63,18 @@ function Router() {
   // Handle token returned from auth.meijian.top
   // MUST run before the auth-effect below so redirect param is read before token is stored
   useEffect(() => {
-    console.log('[DIAG] token-effect fired', { tokenProcessRef: tokenProcessRef.current, loading, hasToken: !!token });
+    console.log('[DIAG] token-effect fired', { tokenProcessRef: tokenProcessRef.current, loading, hasToken: !!token, callbackTokenFromRef: callbackTokenRef.current });
     if (tokenProcessRef.current || loading) {
       console.log('[DIAG] token-effect EARLY RETURN tokenProcessRef=', tokenProcessRef.current, 'loading=', loading);
       return;
     }
-    const url = new URL(window.location.href);
-    const callbackToken = url.searchParams.get('token');
-    console.log('[DIAG] token-effect URL search', { token, redirect: url.searchParams.get('redirect'), fullUrl: window.location.href });
+    const callbackToken = callbackTokenRef.current;
+    console.log('[DIAG] token-effect URL search', { token, callbackTokenFromRef: callbackToken });
     if (callbackToken) {
       tokenProcessRef.current = true;
       console.log('[DIAG] token-effect FOUND token, setting ref=true');
-      // Capture redirect BEFORE mutating the URL
-      const redirectFrom = url.searchParams.get('redirect');
+      const redirectFrom = new URL(window.location.href).searchParams.get('redirect');
+      const url = new URL(window.location.href);
       url.searchParams.delete('token');
       window.history.replaceState(null, '', url.toString());
       login(callbackToken);
@@ -154,4 +160,5 @@ export default function App() {
     </AuthProvider>
   );
 }
+
 
