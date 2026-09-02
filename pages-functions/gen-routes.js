@@ -28,11 +28,6 @@ function scan(dir, mountPath) {
 }
 
 scan(functionsDir, "/api");
-// Add catchall route for SPA pages
-const catchallPath = path.join(__dirname, "functions", "[[catchall]].ts");
-if (fs.existsSync(catchallPath)) {
-  routes.push("/*");
-}
 const unique = [...new Set(routes)].sort();
 
 const output = {
@@ -45,3 +40,12 @@ const output = {
 fs.mkdirSync(path.join(__dirname, "dist"), { recursive: true });
 fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
 console.log("Generated " + unique.length + " routes to " + outputPath);
+
+// Generate _redirects for SPA fallback
+const redirectsPath = path.join(__dirname, "dist", "_redirects");
+const redirects = [
+  "/api/* 200",
+  "/*  /index.html 200"
+];
+fs.writeFileSync(redirectsPath, redirects.join("\n") + "\n");
+console.log("Generated _redirects for SPA fallback");
