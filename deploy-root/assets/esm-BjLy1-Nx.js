@@ -1,2 +1,0 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/web-DhXA9_uA.js","assets/index-DnaWWMaC.js","assets/index-Dc-Ta0-n.css"])))=>i.map(i=>d[i]);
-import{a as e,t}from"./index-DnaWWMaC.js";var n=e(`Share`,{web:()=>t(()=>import(`./web-DhXA9_uA.js`).then(e=>new e.ShareWeb),__vite__mapDeps([0,1,2]))});export{n as Share};
