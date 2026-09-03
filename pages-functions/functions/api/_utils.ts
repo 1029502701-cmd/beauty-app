@@ -1,4 +1,4 @@
-﻿// Inline Platform type (replaces broken import from functions/worker)
+// Inline Platform type (replaces broken import from functions/worker)
 
 // Session key prefix in KV
 export const SESSION_PREFIX = "session:";
@@ -23,6 +23,8 @@ export interface Ctx {
 
 export interface AuthUser {
   userId: string;
+  gender?: string | null;
+  age_range?: string | null;
 }
 
 /**
@@ -107,9 +109,13 @@ export interface JwtPayload {
   user_id: string;
   iat: number;
   exp: number;
+  gender?: string | null;
+  age_range?: string | null;
 }
 
 export async function verifyJwt(token: string, secret: string): Promise<JwtPayload | null> {
+  try {
+
   const parts = token.split('.');
   if (parts.length !== 3) return null;
   const [header, body, signature] = parts;
@@ -121,6 +127,10 @@ export async function verifyJwt(token: string, secret: string): Promise<JwtPaylo
     if (payload.exp && payload.exp < now) return null;
     return payload;
   } catch {
+    return null;
+  }
+  } catch (e) {
+    console.error("[verifyJwt] exception:", e);
     return null;
   }
 }
@@ -140,7 +150,7 @@ export async function requireAuth(
     const jwtToken = authHeader.slice("Bearer ".length);
     const payload = await verifyJwt(jwtToken, env.AUTH_JWT_SECRET);
     if (payload) {
-      return { userId: payload.user_id };
+      return { userId: payload.user_id, gender: payload.gender, age_range: payload.age_range };
     }
   }
 
@@ -350,4 +360,7 @@ Important:
   }
   return doCall(0);
 }
+
+
+
 
