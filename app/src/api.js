@@ -29,6 +29,8 @@ export const authApi = {
   setPassword: (password) => request('/auth/set-password', { method: 'POST', body: JSON.stringify({ password }) }),
   logout: () => request('/auth/logout', { method: 'POST' }),
   probe: () => request('/reports/mine', { method: 'GET' }),
+  getProfile: () => request('/auth/profile', { method: 'GET' }),
+  setProfile: (gender, age_range) => request('/auth/profile', { method: 'POST', body: JSON.stringify({ gender, age_range }) }),
 };
 
 // ── Admin APIs ──────────────────────────────────────────────────────────────────

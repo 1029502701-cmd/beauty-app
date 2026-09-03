@@ -8,6 +8,18 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 function isValidAccount(s) { return PHONE_RE.test(s) || EMAIL_RE.test(s); }
 function isValidPhone(s) { return PHONE_RE.test(s); }
 
+const GENDERS = [
+  { value: 'female', label: '女生' },
+  { value: 'male', label: '男生' },
+];
+const AGE_RANGES = [
+  { value: '18-24', label: '18-24岁' },
+  { value: '25-30', label: '25-30岁' },
+  { value: '31-35', label: '31-35岁' },
+  { value: '36-40', label: '36-40岁' },
+  { value: '40+', label: '40岁以上' },
+];
+
 export default function Login({ onLogin }) {
   const { login } = useContext(AuthContext);
   const [tab, setTab] = useState('password');
@@ -22,6 +34,12 @@ export default function Login({ onLogin }) {
   const [codeSending, setCodeSending] = useState(false);
   const [codeCountdown, setCodeCountdown] = useState(0);
 
+  // Profile modal state
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [pendingSessionId, setPendingSessionId] = useState(null);
+  const [selectedGender, setSelectedGender] = useState('');
+  const [selectedAgeRange, setSelectedAgeRange] = useState('');
+
   useEffect(() => {
     fetch('/api/config/sms_login_enabled')
       .then(r => r.json())
@@ -34,6 +52,29 @@ export default function Login({ onLogin }) {
     const timer = setTimeout(() => setCodeCountdown(c => c - 1), 1000);
     return () => clearTimeout(timer);
   }, [codeCountdown]);
+
+  const finishLogin = async (sessionId) => {
+    await login(sessionId);
+    onLogin?.(sessionStorage.getItem('auth_redirect_from') || null);
+    sessionStorage.removeItem('auth_redirect_from');
+  };
+
+  const checkProfile = async (sessionId) => {
+    try {
+      const res = await fetch('/api/auth/profile', {
+        headers: { 'Authorization': 'Bearer ' + sessionId },
+      });
+      const data = await res.json();
+      if (!res.ok) return true; // assume complete on error
+      if (data.completed) return true;
+      // Not complete — show modal
+      setPendingSessionId(sessionId);
+      setShowProfileModal(true);
+      return false;
+    } catch {
+      return true;
+    }
+  };
 
   const handleAutoLogin = async () => {
     setError('');
@@ -51,9 +92,8 @@ export default function Login({ onLogin }) {
         return;
       }
       if (!res.ok) throw new Error(data.error || '登录失败');
-      await login(data.sessionId);
-      onLogin?.(sessionStorage.getItem('auth_redirect_from') || null);
-      sessionStorage.removeItem('auth_redirect_from');
+      const isLoggedIn = await checkProfile(data.sessionId);
+      if (isLoggedIn) await finishLogin(data.sessionId);
     } catch (e) { setError(e.message || '登录失败，请重试'); }
     finally { setLoading(false); }
   };
@@ -79,10 +119,20 @@ export default function Login({ onLogin }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '登录失败');
-      await login(data.sessionId);
-      onLogin?.(sessionStorage.getItem('auth_redirect_from') || null);
-      sessionStorage.removeItem('auth_redirect_from');
+      const isLoggedIn = await checkProfile(data.sessionId);
+      if (isLoggedIn) await finishLogin(data.sessionId);
     } catch (e) { setError(e.message || '登录失败，请重试'); }
+    finally { setLoading(false); }
+  };
+
+  const handleProfileSubmit = async () => {
+    if (!selectedGender || !selectedAgeRange) return;
+    setLoading(true);
+    try {
+      await authApi.setProfile(selectedGender, selectedAgeRange);
+      setShowProfileModal(false);
+      await finishLogin(pendingSessionId);
+    } catch (e) { setError(e.message || '保存失败，请重试'); }
     finally { setLoading(false); }
   };
 
@@ -139,6 +189,37 @@ export default function Login({ onLogin }) {
           </button>
         )}
       </div>
+
+      {showProfileModal && (
+        <div className="profile-modal-overlay" onClick={() => setShowProfileModal(false)}>
+          <div className="profile-modal" onClick={(e) => e.stopPropagation()}>
+            <h2 className="profile-modal-title">完善个人信息</h2>
+            <p className="profile-modal-hint">选择性别和年龄段，为你推荐更精准的美妆方案</p>
+            <div className="profile-modal-section">
+              <label className="profile-modal-label">性别</label>
+              <div className="profile-modal-options">
+                {GENDERS.map(g => (
+                  <button key={g.value} className={"profile-modal-option" + (selectedGender === g.value ? " profile-modal-option--active" : "")}
+                    onClick={() => setSelectedGender(g.value)}>{g.label}</button>
+                ))}
+              </div>
+            </div>
+            <div className="profile-modal-section">
+              <label className="profile-modal-label">年龄段</label>
+              <div className="profile-modal-options">
+                {AGE_RANGES.map(a => (
+                  <button key={a.value} className={"profile-modal-option" + (selectedAgeRange === a.value ? " profile-modal-option--active" : "")}
+                    onClick={() => setSelectedAgeRange(a.value)}>{a.label}</button>
+                ))}
+              </div>
+            </div>
+            <button className="profile-modal-btn" disabled={!selectedGender || !selectedAgeRange || loading}
+              onClick={handleProfileSubmit}>
+              {loading ? "保存中..." : "完成"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

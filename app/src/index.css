@@ -1258,3 +1258,19 @@
 }
 .admin-toggle-btn:hover { border-color: #db2777; color: #db2777; }
 .admin-toggle-btn--on { background: #fdf2f8; border-color: #db2777; color: #db2777; }
+
+/* Profile modal */
+.profile-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px}
+.profile-modal{background:var(--bg);border-radius:16px;padding:28px 24px 24px;width:100%;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,.18);animation:modalIn .2s ease}
+@keyframes modalIn{from{opacity:0;transform:scale(.95) translateY(12px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.profile-modal-title{margin:0 0 6px;font-size:20px;text-align:center}
+.profile-modal-hint{margin:0 0 24px;font-size:13px;color:var(--text);text-align:center;line-height:1.5}
+.profile-modal-section{margin-bottom:20px}
+.profile-modal-label{display:block;font-size:13px;color:var(--text);margin-bottom:10px;font-weight:500}
+.profile-modal-options{display:flex;gap:10px}
+.profile-modal-option{flex:1;padding:12px 0;font-size:15px;border:1.5px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text-h);cursor:pointer;transition:border-color .15s,background .15s}
+.profile-modal-option:hover{border-color:var(--accent);background:var(--accent-bg)}
+.profile-modal-option--active{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);font-weight:600}
+.profile-modal-btn{width:100%;height:48px;font-size:16px;font-weight:500;color:#fff;background:var(--accent);border:none;border-radius:10px;cursor:pointer;transition:opacity .2s;margin-top:4px}
+.profile-modal-btn:disabled{opacity:.4;cursor:not-allowed}
+.profile-modal-btn:hover:not(:disabled){opacity:.9}

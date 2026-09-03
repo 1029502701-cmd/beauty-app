@@ -184,7 +184,7 @@ export async function requireAuth(
   const sessionStr = await env.SESSION_KV.get(sessionKey);
   if (!sessionStr) return null;
 
-  const session: { userId: string; expiresAt: number } = JSON.parse(sessionStr);
+  const session: { userId: string; gender?: string | null; age_range?: string | null; expiresAt: number } = JSON.parse(sessionStr);
   const now = Math.floor(Date.now() / 1000);
   if (session.expiresAt < now) return null;
 
@@ -194,7 +194,7 @@ export async function requireAuth(
   });
 
   console.log("[requireAuth] session OK userId=" + session.userId);
-  return { userId: session.userId };
+  return { userId: session.userId, gender: session.gender || null, age_range: session.age_range || null };
 }
 
 /**
