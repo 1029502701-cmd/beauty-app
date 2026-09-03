@@ -150,7 +150,15 @@ export async function requireAuth(
     const jwtToken = authHeader.slice("Bearer ".length);
     const payload = await verifyJwt(jwtToken, env.AUTH_JWT_SECRET);
     if (payload) {
-      return { userId: payload.user_id, gender: payload.gender, age_range: payload.age_range };
+      const userId = payload.user_id;
+      try {
+        await env.DB.prepare(
+          'INSERT OR IGNORE INTO users (id, phone, created_at, updated_at) VALUES (?, ?, ?, ?)'
+        ).bind(userId, 'jwt-' + userId.slice(0, 8), Math.floor(Date.now()/1000), Math.floor(Date.now()/1000)).run();
+      } catch(e) {
+        console.warn('[requireAuth] auto-create user failed:', e);
+      }
+      return { userId, gender: payload.gender, age_range: payload.age_range };
     }
   }
 
