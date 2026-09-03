@@ -1,4 +1,4 @@
-import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
+﻿import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
 import { requireAuth, generateId, beijingDate, parseDeepseekJson } from "../../_utils";
 import { resizeBase64IfNeeded } from "../../_image_utils";
 import type { Ctx } from "../../_utils";
@@ -119,8 +119,15 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
       { status: 400, headers: { "Content-Type": "application/json" } }
     );
   }
-  // faceCount === -1 表示校验步骤失败，降级继续分析（保守策略）
+  // faceCount === -1 表示校验步骤失败，拦截并提示用户重试
   // faceCount === 1 表示通过校验，继续正常流程
+  if (faceCount === -1) {
+    console.warn("[tier1/analyze] Face count check failed, blocking analysis");
+    return new Response(
+      JSON.stringify({ error: "face_check_failed", message: "人脸校验服务异常，请重试" }),
+      { status: 503, headers: { "Content-Type": "application/json" } }
+    );
+  }
   if (faceCount === 1) {
     console.log("[tier1/analyze] Face count validated: exactly 1 face, proceeding to analysis");
   }
