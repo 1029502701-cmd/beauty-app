@@ -115,25 +115,37 @@ export interface JwtPayload {
 
 export async function verifyJwt(token: string, secret: string): Promise<JwtPayload | null> {
   try {
-
-  const parts = token.split('.');
-  if (parts.length !== 3) return null;
-  const [header, body, signature] = parts;
-  const valid = await verifyHmacSha256(secret, header + '.' + body, base64urlDecode(signature));
-  if (!valid) return null;
-  try {
-    const payload = JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/'))) as JwtPayload;
-    const now = Math.floor(Date.now() / 1000);
-    if (payload.exp && payload.exp < now) return null;
-    return payload;
-  } catch {
-    return null;
-  }
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      console.error('[verifyJwt] INVALID_FORMAT: token has ' + parts.length + ' parts instead of 3');
+      return null;
+    }
+    const [header, body, signature] = parts;
+    const sigBytes = base64urlDecode(signature);
+    const valid = await verifyHmacSha256(secret, header + '.' + body, sigBytes);
+    if (!valid) {
+      console.error('[verifyJwt] SIGNATURE_MISMATCH: HMAC verification failed (secret may be wrong)');
+      return null;
+    }
+    try {
+      const payload = JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/'))) as JwtPayload;
+      const now = Math.floor(Date.now() / 1000);
+      if (payload.exp && payload.exp < now) {
+        console.error('[verifyJwt] EXPIRED: token expired at ' + payload.exp + ', now=' + now);
+        return null;
+      }
+      console.log('[verifyJwt] OK user_id=' + payload.user_id + ' gender=' + payload.gender);
+      return payload;
+    } catch (e) {
+      console.error('[verifyJwt] PAYLOAD_PARSE_ERROR: ' + e);
+      return null;
+    }
   } catch (e) {
-    console.error("[verifyJwt] exception:", e);
+    console.error('[verifyJwt] EXCEPTION: ' + e);
     return null;
   }
 }
+
 
 /**
  * 中间件：优先验证 JWT，失败则回退到 session 验证，返回 AuthUser 或 null
@@ -144,6 +156,7 @@ export async function requireAuth(
 ): Promise<AuthUser | null> {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) return null;
+  console.log("[requireAuth] authHeader present=" + !!authHeader + " startsWithBearer=" + authHeader.startsWith("Bearer ") + " hasSecret=" + !!env.AUTH_JWT_SECRET);
 
   // 1. 优先尝试 JWT 验证（chat-ai-auth 签发）
   if (authHeader.startsWith("Bearer ") && env.AUTH_JWT_SECRET) {
@@ -163,6 +176,7 @@ export async function requireAuth(
   }
 
   // 2. 回退到 session 验证（原有逻辑）
+  console.log("[requireAuth] JWT failed, falling back to session auth");
   const token = authHeader.replace("Bearer ", "");
   if (!token) return null;
 
@@ -179,6 +193,7 @@ export async function requireAuth(
     expirationTtl: SESSION_TTL,
   });
 
+  console.log("[requireAuth] session OK userId=" + session.userId);
   return { userId: session.userId };
 }
 
