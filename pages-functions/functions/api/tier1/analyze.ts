@@ -106,10 +106,6 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
     }
   }
 
-  // faceCount === -1 表示 API 不可用/超时，降级继续分析（保守策略），记录日志便于排查
-  if (faceCount === -1) {
-    console.warn('[tier1/analyze] Face count validation skipped (API unavailable or timeout), proceeding with analysis');
-  }
   // 人脸数量不合法 → 拦截，不进入分析流程，不消耗每日次数
   if (faceCount === 0) {
     return new Response(

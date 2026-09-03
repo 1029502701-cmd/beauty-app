@@ -24,23 +24,12 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
   }
 
   // 1. 查询 tier2 记录，确认归属当前用户
-  // 先按 tier2 ID 查找（share/ad 解锁流程传入的是 tier2Id）
-  let tier2Row = await env.DB.prepare(
+  const tier2Row = await env.DB.prepare(
     `SELECT id, generation_status, content, source_tier1_report_id
      FROM reports_tier2 WHERE id = ? AND user_id = ? LIMIT 1`
   )
     .bind(reportId, user.userId)
     .first<any>();
-
-  // 若未找到，再按 source_tier1_report_id 查找（前端直接传 tier1 reportId 的场景）
-  if (!tier2Row) {
-    tier2Row = await env.DB.prepare(
-      `SELECT id, generation_status, content, source_tier1_report_id
-       FROM reports_tier2 WHERE source_tier1_report_id = ? AND user_id = ? LIMIT 1`
-    )
-      .bind(reportId, user.userId)
-      .first<any>();
-  }
 
   if (!tier2Row) {
     return new Response(JSON.stringify({ error: "报告不存在或无权访问" }), {

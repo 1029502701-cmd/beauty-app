@@ -296,7 +296,6 @@ export default function ReportPage() {
           setTier2Processing(false);
           clearInterval(interval);
           tier2TimerRef.current = null;
-          setTier2Content(null);
         }
       } catch {
         // keep polling on transient errors
@@ -311,7 +310,7 @@ export default function ReportPage() {
       }
       setTier2Processing(false);
     };
-  }, [reportId, token]);
+  }, [reportId, token, tier2Generation]);
 
 
   // Fetch tier2_btn_color from admin config on mount
