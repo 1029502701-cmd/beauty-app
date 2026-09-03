@@ -23,9 +23,7 @@ function scan(dir, mountPath) {
     } else if (entry.name.endsWith(".ts") && !entry.name.startsWith("_")) {
       const name = entry.name.replace(/\.ts$/, "");
       const paramMatch = name.match(/^\[(\w+)\]$/);
-      const route = paramMatch
-        ? mountPath + "/" + ":" + paramMatch[1] + "*"
-        : mountPath + "/" + name;
+      const route = mountPath + "/*";
       routes.push(route);
     }
   }
