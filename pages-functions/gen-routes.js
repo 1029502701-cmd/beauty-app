@@ -1,4 +1,4 @@
-// Generate _routes.json for Cloudflare Pages Functions
+﻿// Generate _routes.json for Cloudflare Pages Functions
 const fs = require("fs");
 const path = require("path");
 
@@ -14,7 +14,7 @@ function scan(dir, mountPath) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (entry.name.startsWith("[") && entry.name.endsWith("]")) {
-        const route = mountPath + "/" + entry.name.replace("[", ":").replace("]", "*");
+        const route = mountPath + "/*";
         routes.push(route);
         continue;
       }
@@ -23,8 +23,8 @@ function scan(dir, mountPath) {
     } else if (entry.name.endsWith(".ts") && !entry.name.startsWith("_")) {
       const name = entry.name.replace(/\.ts$/, "");
       const paramMatch = name.match(/^\[(\w+)\]$/);
-            const route = paramMatch
-        ? mountPath + "/" + ":" + paramMatch[1] + "*"
+      const route = paramMatch
+        ? mountPath + "/*"
         : mountPath + "/" + name;
       routes.push(route);
     }
@@ -47,7 +47,7 @@ console.log("Generated " + unique.length + " routes to " + outputPath);
 
 // Generate _redirects for SPA fallback
 const redirectsPath = path.join(__dirname, "dist", "_redirects");
-const redirects = [
+const redirects = [
   "/*  /index.html 200"
 ];
 fs.writeFileSync(redirectsPath, redirects.join("\n") + "\n");
