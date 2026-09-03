@@ -21,12 +21,7 @@ function scan(dir, mountPath) {
       const subMount = mountPath + "/" + entry.name;
       scan(full, subMount);
     } else if (entry.name.endsWith(".ts") && !entry.name.startsWith("_")) {
-      const name = entry.name.replace(/\.ts$/, "");
-      // Convert [param] to :param* for Cloudflare Pages routing
-      const paramMatch = name.match(/^\[(\w+)\]$/);
-      const route = paramMatch
-        ? mountPath + "/" + ":" + paramMatch[1] + "*"
-        : mountPath + "/" + name;
+      const route = mountPath + "/" + entry.name.replace(".ts", "");
       routes.push(route);
     }
   }
@@ -49,6 +44,7 @@ console.log("Generated " + unique.length + " routes to " + outputPath);
 // Generate _redirects for SPA fallback
 const redirectsPath = path.join(__dirname, "dist", "_redirects");
 const redirects = [
+  "/api/* 200",
   "/*  /index.html 200"
 ];
 fs.writeFileSync(redirectsPath, redirects.join("\n") + "\n");
