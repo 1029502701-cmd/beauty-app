@@ -1,4 +1,4 @@
-﻿import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
+import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
 import { requireAuth, generateId, beijingDate, parseDeepseekJson } from "../../_utils";
 import { resizeBase64IfNeeded } from "../../_image_utils";
 import type { Ctx } from "../../_utils";
@@ -73,37 +73,57 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
   let faceCount = -1;
   if (photoBase64) {
     const apiKey = env.DASHSCOPE_API_KEY;
+    // [DIAG] 打印密钥状态（不打印明文，只打印长度）
+    console.log(`[DIAG] DASHSCOPE_API_KEY present: ${!!apiKey}, key length: ${apiKey?.length ?? 0}`);
     if (apiKey) {
       const faceCheckPrompt = `Count the number of clearly visible human faces in this image. Reply with ONLY a single integer (e.g. 0, 1, 2, 3...). Do not write any other text.`;
+      const requestBody = JSON.stringify({
+        model: "qwen-vl-max",
+        messages: [{ role: "user", content: [{ type: "text", text: faceCheckPrompt }, { type: "image_url", image_url: { url: photoBase64 } }] }],
+        max_tokens: 10,
+        temperature: 0,
+      });
+      // [DIAG] 打印请求参数摘要
+      console.log(`[DIAG] API endpoint: https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`);
+      console.log(`[DIAG] Model: qwen-vl-max, photoBase64 length: ${photoBase64.length}, request body length: ${requestBody.length}`);
       try {
+        console.log(`[DIAG] Sending face check request...`);
         const faceCheckResp = await fetch("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-          body: JSON.stringify({
-            model: "qwen-vl-max",
-            messages: [{ role: "user", content: [{ type: "text", text: faceCheckPrompt }, { type: "image_url", image_url: { url: photoBase64 } }] }],
-            max_tokens: 10,
-            temperature: 0,
-          }),
+          body: requestBody,
           signal: AbortSignal.timeout(15000),
         });
+        // [DIAG] 打印HTTP状态码和关键字段
+        console.log(`[DIAG] Face check response status: ${faceCheckResp.status} ${faceCheckResp.statusText}`);
+        console.log(`[DIAG] Response headers (filtered): contentType=${faceCheckResp.headers.get("content-type")}, x-RequestId=${faceCheckResp.headers.get("x-RequestId")}, x-dashscope-trace-id=${faceCheckResp.headers.get("x-dashscope-trace-id")}`);
+        const respText = await faceCheckResp.text();
+        console.log(`[DIAG] Face check response body (${respText.length} chars): ${respText.slice(0, 800)}`);
         if (faceCheckResp.ok) {
-          const faceData: any = await faceCheckResp.json();
+          const faceData: any = JSON.parse(respText);
           const faceText = faceData?.choices?.[0]?.message?.content?.trim() ?? "";
           const parsed = parseInt(faceText, 10);
           if (!isNaN(parsed) && parsed >= 0) {
             faceCount = parsed;
             console.log(`[tier1/analyze] Face count check: ${faceCount} face(s) detected`);
           } else {
-            console.warn(`[tier1/analyze] Face count parse failed, got: "${faceText}", defaulting to -1`);
+            faceCount = 1; // parse failed, skip check and proceed
           }
         } else {
-          console.warn(`[tier1/analyze] Face count check API error ${faceCheckResp.status}, skipping validation`);
+          // [DIAG] 解析并打印具体的错误信息（非2xx时重点输出）
+          let errMsg = respText;
+          try { errMsg = JSON.stringify(JSON.parse(respText)); } catch {}
+          console.error(`[DIAG] Face check API error ${faceCheckResp.status}: ${errMsg}`);
         }
-      } catch (e) {
-        console.warn("[tier1/analyze] Face count check timeout/error, continuing without validation:", e);
+      } catch (e: any) {
+        // [DIAG] 打印异常详情（timeout/cancelled/network等）
+        console.error(`[DIAG] Face check exception: name=${e?.name}, message=${e?.message}, cause=${e?.cause?.toString?.()}`);
       }
+    } else {
+      faceCount = 1; // API key missing, skip face check and proceed
     }
+  } else {
+    console.warn("[DIAG] photoBase64 is null/empty, skipping face check entirely");
   }
 
   // 人脸数量不合法 → 拦截，不进入分析流程，不消耗每日次数
@@ -150,8 +170,10 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
         textDesc = data?.choices?.[0]?.message?.content?.trim() ?? "";
         if (textDesc) console.log(`[tier1/analyze] Vision OK, desc len: ${textDesc.length}, preview: ${textDesc.slice(0, 80)}`);
       } else {
-        console.error("[tier1/analyze] DashScope vision error", resp.status,
-          ` (photoBase64 length: ${photoBase64 ? photoBase64.length : 0}, status: ${resp.status})`);
+        const errBody = await resp.text().catch(() => "");
+        let errMsg = errBody;
+        try { errMsg = JSON.stringify(JSON.parse(errBody)); } catch {}
+        console.error(`[tier1/analyze] DashScope vision error ${resp.status}: ${errMsg.slice(0, 500)}`);
       }
     }
   }
