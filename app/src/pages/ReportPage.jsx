@@ -722,7 +722,7 @@ export default function ReportPage() {
                   onComplete={(rid, reportData, previewData) => {
                     setTier1Report(reportData);
                     setPreview(previewData || null);
-                    window.history.pushState({ reportId: rid }, "", "/report?id=" + encodeURIComponent(rid));
+                    window.history.pushState({ reportId: rid, preview: previewData }, "", "/report?id=" + encodeURIComponent(rid));
                     window.dispatchEvent(new PopStateEvent("popstate"));
                   }}
                 />
