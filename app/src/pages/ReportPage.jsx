@@ -5,14 +5,15 @@ import Tier2Result from './Tier2Result.jsx';
 import { getCompliment } from './complimentMap.js';
 import { BASE } from '../api.js';
 import { removeStorageItem, STORAGE_KEYS } from '../utils/storage.js';
+import CapturePhotoUpload from './CapturePhotoUpload.jsx';
 
 const RESULT_ITEMS = [
   { key: 'faceShape',        label: '脸型',         icon: '◎' },
   { key: 'skinType',         label: '肤质',         icon: '◉' },
-  { key: 'eyebrowShape',     label: '眉形',         icon: '❖', placeholder: '待分析' },
-  { key: 'eyeShape',         label: '眼型',         icon: '◐', placeholder: '待分析' },
-  { key: 'threeFiveRatio',   label: '三庭五眼',     icon: '☰', placeholder: '待分析' },
-  { key: 'symmetry',         label: '五官对称度',   icon: '⚖', placeholder: '待分析' },
+  { key: 'eyebrowShape',     label: '眉形',         icon: '❖', placeholder: '上传照片后生成' },
+  { key: 'eyeShape',         label: '眼型',         icon: '◐', placeholder: '上传照片后生成' },
+  { key: 'threeFiveRatio',   label: '三庭五眼',     icon: '☰', placeholder: '上传照片后生成' },
+  { key: 'symmetry',         label: '五官对称度',   icon: '⚖', placeholder: '上传照片后生成' },
 ];
 
 const AD_DURATION_SEC = 5;
@@ -199,6 +200,7 @@ export default function ReportPage() {
   const [tier3PreviewLoading, setTier3PreviewLoading] = useState(true);
   const [tier3CurrentQuestionIndex, setTier3CurrentQuestionIndex] = useState(0);
   const [tier3AnswerFlash, setTier3AnswerFlash] = useState(null);
+  const [showArchive, setShowArchive] = useState(false);
   const tier3TimerRef = useRef(null);
 
   // Load tier1 report from sessionStorage (set by Capture.jsx after analysis)
@@ -663,8 +665,8 @@ export default function ReportPage() {
     const compliment = getCompliment(item.key, value);
     return { ...item, value, compliment };
   });
-  const personaTags = initReport?.personaTags ? [initReport.personaTags] : ['温柔知性风', '清透裸妆感'];
-  const highlightText = initReport?.highlight ?? '发现你的独特之美';
+  const personaTags = initReport?.personaTags ? [initReport.personaTags] : ['温柔知性风，适合日常淡妆', '清透裸妆感，凸显自然美'];
+  const highlightText = initReport?.highlight ?? '你的五官比例协调，笑起来很有感染力';
 
   const t2 = tier2Content;
 
@@ -695,12 +697,12 @@ export default function ReportPage() {
           <div className="report-loading">正在验证报告...</div>
         )}
 
-        {reportValid !== false && reportValid !== null && (
+        {reportValid !== false && (
           <>
             <div className="report-header">
           <button className="report-back-btn" onClick={navigateBack}>‹ 返回</button>
           <span className="report-title">美妆分析报告</span>
-          <div className="report-header-spacer" />
+          <button className="report-archive-btn" onClick={() => setShowArchive(true)}>我的档案</button>
         </div>
 
         <div className="report-tabs">
@@ -712,7 +714,21 @@ export default function ReportPage() {
         {/* 初识 */}
         {activeTab === '初识' && (
           <div className="report-tab-content">
-            {!initReport ? <div className="report-loading">加载中...</div> : (
+            {!initReport ? (
+              <>
+                <CapturePhotoUpload
+                  preview={preview}
+                  compact
+                  onComplete={(rid, reportData, previewData) => {
+                    setTier1Report(reportData);
+                    setPreview(previewData || null);
+                    window.history.pushState({ reportId: rid }, "", "/report?id=" + encodeURIComponent(rid));
+                    window.dispatchEvent(new PopStateEvent("popstate"));
+                  }}
+                />
+                <button className="capture-influencer-btn" onClick={() => window.location.href="/influencer-apply"} title="达人入驻">✨ 达人入驻</button>
+              </>
+            ) : (
               <>
                 <div className="report-hero">
                   {preview ? <img className="report-hero-photo" src={preview} alt="你的照片" style={{ aspectRatio: '3/4' }} onClick={() => setOpenPhoto(preview)} /> : <div className="report-hero-photo-placeholder">📷</div>}
@@ -945,15 +961,41 @@ export default function ReportPage() {
           </>
         )}
 
-        {reportValid !== false && reportValid !== null && (
+        {reportValid !== false && (
           showAd && <AdOverlay duration={AD_DURATION_SEC} onComplete={handleAdFinish} />
         )}
-      </div>
           {openPhoto && (
             <div className="photo-lightbox-overlay" onClick={() => setOpenPhoto(null)}>
               <img className="photo-lightbox-img" src={openPhoto} alt="放大预览" />
             </div>
           )}
+        {showArchive && (
+          <div className="archive-overlay" onClick={() => setShowArchive(false)}>
+            <div className="archive-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="archive-modal-header">
+                <span className="archive-modal-title">我的档案</span>
+                <button className="archive-modal-close" onClick={() => setShowArchive(false)}>✕</button>
+              </div>
+              <div className="archive-modal-body">
+                <p className="archive-modal-hint">已解锁的进阶报告将在此展示</p>
+                <div className="archive-empty">
+                  <p>暂无进阶报告</p>
+                  <p className="archive-empty-hint">完成初识报告并分享或看广告解锁进阶内容</p>
+                </div>
+                <button
+                  className="archive-reupload-btn"
+                  onClick={() => {
+                    setShowArchive(false);
+                    setActiveTab("初识");
+                  }}
+                >
+                  🔄 重新上传，更换今日初识报告
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </RequireAuth>
   );
 }
