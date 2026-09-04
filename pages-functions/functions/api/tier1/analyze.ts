@@ -71,6 +71,7 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
   // 用 qwen-vl-max 快速判断图片中人脸数量，只有恰好1张才允许进入详细分析
   // 此步骤不消耗每日分析次数额度
   let faceCount = -1;
+  let faceCheckReason = "";
   if (photoBase64) {
     const apiKey = env.DASHSCOPE_API_KEY;
     // [DIAG] 打印密钥状态（不打印明文，只打印长度）
@@ -114,13 +115,23 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
           let errMsg = respText;
           try { errMsg = JSON.stringify(JSON.parse(respText)); } catch {}
           console.error(`[DIAG] Face check API error ${faceCheckResp.status}: ${errMsg}`);
+          let apiError = "";
+          try {
+            const errJson = JSON.parse(respText);
+            apiError = errJson?.error?.message ?? errJson?.message ?? String(faceCheckResp.status);
+          } catch {}
+          faceCheckReason = "AI服务返回错误（" + (apiError || String(faceCheckResp.status)) + "）";
         }
       } catch (e: any) {
         // [DIAG] 打印异常详情（timeout/cancelled/network等）
         console.error(`[DIAG] Face check exception: name=${e?.name}, message=${e?.message}, cause=${e?.cause?.toString?.()}`);
+        const typeName = e?.name || "Unknown";
+        if (typeName === "TimeoutError") faceCheckReason = "网络超时，请检查网络后重试";
+        else if (typeName === "AbortError") faceCheckReason = "请求已取消，请重试";
+        else faceCheckReason = "网络异常（" + typeName + "），请稍后重试";
       }
     } else {
-      // API key missing, leave faceCount=-1 to block
+      faceCheckReason = "API密钥未配置，请联系管理员";
     }
   } else {
     console.warn("[DIAG] photoBase64 is null/empty, skipping face check entirely");
@@ -144,7 +155,7 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
   if (faceCount === -1) {
     console.warn("[tier1/analyze] Face count check failed, blocking analysis");
     return new Response(
-      JSON.stringify({ error: "face_check_failed", message: "人脸校验服务异常，请重试" }),
+      JSON.stringify({ error: "face_check_failed", message: faceCheckReason || "人脸校验服务异常，请重试" }),
       { status: 503, headers: { "Content-Type": "application/json" } }
     );
   }
@@ -174,6 +185,17 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
         let errMsg = errBody;
         try { errMsg = JSON.stringify(JSON.parse(errBody)); } catch {}
         console.error(`[tier1/analyze] DashScope vision error ${resp.status}: ${errMsg.slice(0, 500)}`);
+        let visionError = "";
+        try {
+          const vErr = JSON.parse(errBody);
+          visionError = vErr?.error?.message ?? "AI分析服务异常（" + resp.status + "）";
+        } catch {
+          visionError = "AI分析服务异常（" + resp.status + "）";
+        }
+        return new Response(
+          JSON.stringify({ error: "vision_error", message: "面部识别失败：" + visionError }),
+          { status: 503, headers: { "Content-Type": "application/json" } }
+        );
       }
     }
   }
@@ -243,9 +265,24 @@ Output strict JSON only, with these exact keys:
     } else {
       const errBody = await resp.text().catch(() => "");
       console.error(`[tier1/analyze] DeepSeek error ${resp.status}: ${errBody.slice(0, 300)}`);
+      let dsError = "";
+      try {
+        const dErr = JSON.parse(errBody);
+        dsError = dErr?.error?.message ?? "AI报告生成异常（" + resp.status + "）";
+      } catch {
+        dsError = "AI报告生成异常（" + resp.status + "）";
+      }
+      return new Response(
+        JSON.stringify({ error: "deepseek_error", message: "报告生成失败：" + dsError }),
+        { status: 503, headers: { "Content-Type": "application/json" } }
+      );
     }
   } else {
     console.warn("[tier1/analyze] DEEPSEEK_API_KEY not set, skipping DeepSeek call");
+    return new Response(
+      JSON.stringify({ error: "config_error", message: "报告生成服务未配置，请联系管理员" }),
+      { status: 503, headers: { "Content-Type": "application/json" } }
+    );
   }
 
   // Fallback defaults for any missing enum fields from DeepSeek
