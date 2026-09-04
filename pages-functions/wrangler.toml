@@ -6,6 +6,7 @@ compatibility_date = "2024-11-01"
 binding = "DB"
 database_name = "beauty-app"
 database_id = "597322ae-1bef-45d5-90bf-7606c92c524c"
+migrations_dir = "../migrations"
 
 [[r2_buckets]]
 binding = "R2_TEMP"

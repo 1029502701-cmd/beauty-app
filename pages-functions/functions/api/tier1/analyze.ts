@@ -107,7 +107,7 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
             faceCount = parsed;
             console.log(`[tier1/analyze] Face count check: ${faceCount} face(s) detected`);
           } else {
-            faceCount = 1; // parse failed, skip check and proceed
+            // parse failed, leave faceCount=-1 to block
           }
         } else {
           // [DIAG] 解析并打印具体的错误信息（非2xx时重点输出）
@@ -120,7 +120,7 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
         console.error(`[DIAG] Face check exception: name=${e?.name}, message=${e?.message}, cause=${e?.cause?.toString?.()}`);
       }
     } else {
-      faceCount = 1; // API key missing, skip face check and proceed
+      // API key missing, leave faceCount=-1 to block
     }
   } else {
     console.warn("[DIAG] photoBase64 is null/empty, skipping face check entirely");
