@@ -1,11 +1,19 @@
-﻿import type { FrameworkCallbackOptions } from '@cloudflare/workers-types';
+import type { FrameworkCallbackOptions } from '@cloudflare/workers-types';
 import { verifyAdminCredentials, generateId } from '../../_utils';
 import type { Ctx } from '../../_utils';
 
 export const POST: FrameworkCallbackOptions['POST'] = async (context) => {
   const { request, env } = context;
-  const body = await request.json();
-  const { username, password } = body as { username: string; password: string };
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return new Response(JSON.stringify({ error: "请求体格式错误" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const { username, password } = body ?? {};
 
   const ok = await verifyAdminCredentials(username, password, env);
   if (!ok) {

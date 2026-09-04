@@ -254,7 +254,9 @@ Output strict JSON only, with these exact keys:
       const data: any = await resp.json();
       const raw = data?.choices?.[0]?.message?.content;
       if (raw) {
-        if (report) {
+        const parsed = parseDeepseekJson(raw);
+        if (parsed) {
+          Object.assign(report, parsed);
           console.log(`[tier1/analyze] DeepSeek OK, parsed report keys: ${Object.keys(report).join(", ")}, highlight=${String(report.highlight)?.slice(0, 40)}, suggestions count=${Array.isArray(report.suggestions) ? report.suggestions.length : 0}`);
         } else {
           console.error("[tier1/analyze] Invalid DeepSeek JSON response");
