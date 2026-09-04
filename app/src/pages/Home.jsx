@@ -3,7 +3,7 @@ import { AuthContext } from '../context/AuthContext.jsx';
 import { BASE } from '../api.js';
 
 const PRODUCTS = [
-  { id: 'ai-beauty', label: 'AI 美妆', icon: '💄', path: '/capture' },
+  { id: 'ai-beauty', label: 'AI 美妆', icon: '💄', path: '/report' },
   { id: 'chat-ai', label: '聊天AI', icon: '💬', path: 'https://gxvipvpn2.ccwu.cc' },
 ];
 

@@ -12,7 +12,7 @@
     "dev:pages": "npm run dev --workspace=pages-functions",
     "dev:scheduled": "npm run dev --workspace=scheduled-worker",
     "build": "npm run build --workspace=app",
-    "deploy:pages": "npm run build --workspace=app && cd pages-functions && npx wrangler pages deploy ../app/dist --project-name=beauty-api-pages",
+    "deploy:pages": "npm run build --workspace=app && cd pages-functions && npx wrangler pages functions build functions --outdir dist && node gen-routes.js && mkdir -p dist/assets && cp -r ../../app/dist/assets/* dist/assets/ 2>/dev/null; cp ../../app/dist/index.html dist/index.html 2>/dev/null; cp ../../app/dist/favicon.svg dist/ 2>/dev/null; cp ../../app/dist/icons.svg dist/ 2>/dev/null; cp ../../app/dist/_curated-products.json dist/ 2>/dev/null; cp ../../app/dist/mock-pay.html dist/ 2>/dev/null; npx wrangler pages deploy ./dist --project-name=beauty-api-pages --branch=master --skip-caching --commit-dirty=true",
     "deploy:scheduled": "npx wrangler deploy --cwd scheduled-worker",
     "d1:migrate:local": "npx wrangler d1 migrations apply --local --project-name=beauty-api-pages",
     "d1:migrate:prod": "npx wrangler d1 migrations apply --project-name=beauty-api-pages"
