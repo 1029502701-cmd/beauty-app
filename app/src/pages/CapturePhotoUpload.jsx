@@ -81,6 +81,9 @@ async function callAnalyze(base64, token, signal) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
+    if (res.status === 429 && err.error === 'daily_limit_exceeded') {
+      throw new Error(err.message || '今日初识次数已用完，明天再来吧');
+    }
     throw new Error(err.message || err.error || `请求失败: ${res.status}`);
   }
   return res.json();
