@@ -948,7 +948,9 @@ export default function ReportPage() {
                   className="archive-reupload-btn"
                   onClick={() => {
                     setShowArchive(false);
-                    setActiveTab("初识");
+                    window.history.pushState({}, '', '/capture');
+                    window.dispatchEvent(new PopStateEvent('popstate'));
+                    return;
                   }}
                 >
                   🔄 重新上传，更换今日初识报告
