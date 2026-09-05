@@ -1,0 +1,17 @@
+- generic [ref=f10e16]:
+  - generic [ref=f10e17]:
+    - generic [ref=f10e18]: 📷
+    - generic [ref=f10e20]:
+      - generic [ref=f10e21]: 温柔知性风，适合日常淡妆
+      - generic [ref=f10e22]: 清透裸妆感，凸显自然美
+    - paragraph [ref=f10e24]: 你的五官比例协调，笑起来很有感染力
+    - paragraph [ref=f10e27]: 扫码查看我的分析报告
+  - generic [ref=f10e28]:
+    - button "‹ 返回" [ref=f10e29] [cursor=pointer]
+    - generic [ref=f10e30]: 美妆分析报告
+    - button "我的档案" [ref=f10e31] [cursor=pointer]
+  - generic [ref=f10e32]:
+    - button "初识" [ref=f10e33] [cursor=pointer]
+    - button "进阶" [active] [ref=f10e34] [cursor=pointer]
+    - button "专属" [ref=f10e35] [cursor=pointer]
+  - generic [ref=f10e43]: 加载中...

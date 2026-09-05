@@ -95,7 +95,7 @@ function Router() {
       // Unauthenticated: redirect to unified login (auth.meijian.top)
       if (!token && callbackTokenRef.current === null && effectivePath !== '/login' && effectivePath !== '/admin/login' && !effectivePath.startsWith('/admin')) {
         console.log('[DIAG] A2 auth-guard REDIRECT to auth (no token, path=', effectivePath, ')');
-        const target = encodeURIComponent(window.location.origin + effectivePath || '/');
+        const target = encodeURIComponent(window.location.href || '/');
         window.location.href = 'https://auth.meijian.top?redirect=' + target;
       }
       // Authenticated: redirect root / to /home (skip while processing callback token)

@@ -1,0 +1,42 @@
+{
+  "products": [
+    {
+      "name": "CPB长管隔离霜",
+      "price": 320,
+      "imageUrl": "https://img.alicdn.com/imgextra/i1/O1CN01abc123_!!xxx.jpg",
+      "itemUrl": "https://item.taobao.com/item.htm?id=123456789",
+      "shopTitle": "CPB旗舰店",
+      "tags": [
+        "隔离",
+        "妆前乳",
+        "CPB",
+        "primer",
+        "long tube",
+        "clé de peature"
+      ],
+      "keywords": [
+        "长管隔离",
+        "隔离霜"
+      ]
+    },
+    {
+      "name": "兰蔻小黑瓶精华肌底液",
+      "price": 580,
+      "imageUrl": "https://img.alicdn.com/imgextra/i2/O1CN01def456_!!xxx.jpg",
+      "itemUrl": "https://item.taobao.com/item.htm?id=987654321",
+      "shopTitle": "兰蔻官方旗舰店",
+      "tags": [
+        "精华",
+        "肌底液",
+        "兰蔻",
+        "advanced genifique",
+        "serum",
+        "lancome"
+      ],
+      "keywords": [
+        "小黑瓶",
+        "肌底液"
+      ]
+    }
+  ]
+}

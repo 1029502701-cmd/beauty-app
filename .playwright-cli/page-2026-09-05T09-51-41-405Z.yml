@@ -1,0 +1,41 @@
+- generic [ref=f2e15]:
+  - generic [ref=f2e16]:
+    - generic [ref=f2e17]: 📷
+    - generic [ref=f2e19]:
+      - generic [ref=f2e20]: 温柔知性风，适合日常淡妆
+      - generic [ref=f2e21]: 清透裸妆感，凸显自然美
+    - paragraph [ref=f2e23]: 你的五官比例协调，笑起来很有感染力
+    - paragraph [ref=f2e26]: 扫码查看我的分析报告
+  - generic [ref=f2e27]:
+    - button "‹ 返回" [ref=f2e28] [cursor=pointer]
+    - generic [ref=f2e29]: 美妆分析报告
+    - button "我的档案" [ref=f2e30] [cursor=pointer]
+  - generic [ref=f2e31]:
+    - button "初识" [ref=f2e32] [cursor=pointer]
+    - button "进阶" [ref=f2e33] [cursor=pointer]
+    - button "专属" [ref=f2e34] [cursor=pointer]
+  - generic [ref=f2e35]:
+    - generic [ref=f2e36]:
+      - img "预览" [ref=f2e43]
+      - generic [ref=f2e44]:
+        - list [ref=f2e45]:
+          - listitem [ref=f2e46]:
+            - generic [ref=f2e47]: ✓
+            - generic [ref=f2e48]: 分析脸型
+          - listitem [ref=f2e49]:
+            - generic [ref=f2e50]: ✓
+            - generic [ref=f2e51]: 分析三庭五眼比例
+          - listitem [ref=f2e52]:
+            - generic [ref=f2e53]: ✓
+            - generic [ref=f2e54]: 分析眉形
+          - listitem [ref=f2e55]:
+            - generic [ref=f2e56]: ✓
+            - generic [ref=f2e57]: 分析眼型
+          - listitem [ref=f2e58]:
+            - generic [ref=f2e59]: ✓
+            - generic [ref=f2e60]: 分析肤质
+          - listitem [ref=f2e61]:
+            - generic [ref=f2e62]: ✓
+            - generic [ref=f2e63]: 分析五官对称度
+        - paragraph [ref=f2e64]: 正在整理结果中...
+    - button "✨ 达人入驻" [ref=f2e41] [cursor=pointer]

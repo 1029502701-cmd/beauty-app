@@ -16,7 +16,7 @@ export default function RequireAuth({ children, fallbackPath = '/home', onNaviga
   useEffect(() => {
     if (forceRedirect && onNavigate && !hasNavigatedRef.current) {
       hasNavigatedRef.current = true;
-      const currentPath = window.location.pathname;
+      const currentPath = window.location.href;
       if (currentPath !== '/login') {
         sessionStorage.setItem('auth_redirect_from', currentPath);
       }
@@ -28,7 +28,7 @@ export default function RequireAuth({ children, fallbackPath = '/home', onNaviga
   useEffect(() => {
     if (!token && onNavigate && window.location.pathname !== '/login' && !hasNavigatedRef.current) {
       hasNavigatedRef.current = true;
-      const origUrl = window.location.origin + window.location.pathname;
+      const origUrl = window.location.href;
       sessionStorage.setItem('auth_redirect_from', origUrl);
       onNavigate('/login');
     }

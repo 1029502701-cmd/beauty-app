@@ -292,7 +292,7 @@ export default function CapturePhotoUpload({ onComplete, onCancel, compact }) {
         <div className="capture-analyzing">
           <ul className="capture-steps">
             {ANALYSIS_STEPS.map((label, i) => (
-              <li key={i} className={capture-step }>
+              <li key={i} className={`capture-step${i < visibleCount ? ' capture-step--visible' : ''}`}>
                 <span className="capture-step-check">{i < visibleCount ? '✓' : '·'}</span>
                 <span className="capture-step-label">{label}</span>
               </li>

@@ -207,10 +207,19 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
     ).bind(reportId, authUser.userId, JSON.stringify(fullData), now).run();
   };
 
+  const saveTier2 = async () => {
+    const tier2Id = generateId();
+    await env.DB.prepare(
+      `INSERT INTO reports_tier2 (id, user_id, content, generation_status, source_tier1_report_id, created_at)
+       VALUES (?, ?, ?, 'pending', ?, ?)`
+    ).bind(tier2Id, authUser.userId, '{}', reportId, now).run();
+    console.log(`[tier1/analyze] Created tier2 record ${tier2Id} for tier1 ${reportId}`);
+  };
   if (!textDesc) {
     console.warn("[tier1/analyze] No vision description, falling back to placeholder report");
     const ph = { faceShape:"圆脸", skinType:"混合肌", eyebrowShape:"一字眉", eyeShape:"杏眼", threeFiveRatio:"比例均衡型", symmetry:"高对称度", personaTags:"温柔知性风", highlight:"你的五官比例很有辨识度，属于耐看型", suggestions:["建议尝试橘色系妆容提气色"] };
     await saveReport(ph);
+    await saveTier2();
     return new Response(JSON.stringify({ report: ph, reportId }), { headers: { "Content-Type": "application/json" } });
   }
 
@@ -317,6 +326,7 @@ Output strict JSON only, with these exact keys:
   }
 
   await saveReport(report);
+  await saveTier2();
   return new Response(JSON.stringify({ report, reportId }), { headers: { "Content-Type": "application/json" } });
 };
 

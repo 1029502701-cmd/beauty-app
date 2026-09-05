@@ -1,43 +1,48 @@
-import sys
-sys.stdout.reconfigure(encoding='utf-8')
+import re
+
 path = r'C:\Users\yao\Documents\ChatGPT\美妆app\app\src\pages\ReportPage.jsx'
 with open(path, 'r', encoding='utf-8') as f:
     content = f.read()
 
-# 1. Add Tier2Result import after line 3
-content = content.replace(
-    "import RequireAuth from '../router/RequireAuth.jsx';\n",
-    "import RequireAuth from '../router/RequireAuth.jsx';\nimport Tier2Result from './Tier2Result.jsx';\n"
-)
-print('Import added:', 'Tier2Result' in content)
+# Fix 1: Add photo preview effect after the existing tier1 loading effect
+old_block = """  // Load tier1 report from sessionStorage (set by Capture.jsx after analysis)
+  useEffect(() => {
+    if (!reportId) return;
+    const stored = sessionStorage.getItem('capture_report_' + reportId);
+    if (stored) { try { setTier1Report(JSON.parse(stored)); } catch {} }
+  }, [reportId]);"""
 
-# 2. Remove STYLE_EMOJIS
-content = content.replace("const STYLE_EMOJIS = ['💄', '✨', '🌸', '💎'];\n", '')
-print('STYLE_EMOJIS removed')
+new_block = """  // Load tier1 report from sessionStorage (set by Capture.jsx after analysis)
+  useEffect(() => {
+    if (!reportId) return;
+    const stored = sessionStorage.getItem('capture_report_' + reportId);
+    if (stored) { try { setTier1Report(JSON.parse(stored)); } catch {} }
+  }, [reportId]);
 
-# 3. Remove MOCK_INFLUENCERS
-old_mock = """const MOCK_INFLUENCERS = [
-  { id: 1, name: '林小美妆', fans: '238万', style: '清透日常妆', avatar: '👩', desc: '擅长根据脸型定制妆容，分享超多平价好物' },
-  { id: 2, name: '化妆师Amy', fans: '156万', style: '高级晚宴妆', avatar: '💁‍♀️', desc: '专业舞台化妆师，揭秘明星同款妆容技巧' },
-  { id: 3, name: '甜美妆娘', fans: '312万', style: '元气少女风', avatar: '🧚‍♀️', desc: '学生党必备，百元内打造精致妆感' },
-];
-"""
-content = content.replace(old_mock, '')
-print('MOCK_INFLUENCERS removed:', 'MOCK_INFLUENCERS' not in content)
+  // Restore photo preview from facePhotoKey stored in the tier1 report data
+  useEffect(() => {
+    if (!tier1Report || !tier1Report.facePhotoKey) return;
+    setPreview('/api/r2-proxy?key=' + encodeURIComponent(tier1Report.facePhotoKey) + '&bucket=temp');
+  }, [tier1Report]);"""
 
-# 4. Remove expandedDims state
-content = content.replace("  const [expandedDims, setExpandedDims] = useState({});\n", '')
-print('expandedDims removed')
+if old_block in content:
+    content = content.replace(old_block, new_block, 1)
+    print('Fix 1 applied: photo preview effect added')
+else:
+    print('ERROR: Fix 1 pattern not found')
 
-# 5. Remove toggleDim
-content = content.replace("  const toggleDim = (dim) => setExpandedDims((prev) => ({ ...prev, [dim]: !prev[dim] }));\n", '')
-print('toggleDim removed')
+# Fix 2: Replace window.location.href with SPA navigation
+old_line = '                    window.location.href = "/capture";'
+new_lines = """                    window.history.pushState({}, '', '/capture');
+                    window.dispatchEvent(new PopStateEvent('popstate'));"""
 
-# 6. Remove dimOrder and dimLabels
-content = content.replace("  const dimOrder = ['faceShape', 'skinType', 'eyebrowShape', 'eyeShape', 'threeFiveRatio', 'symmetry'];\n", '')
-content = content.replace("  const dimLabels = { faceShape: '脸型', skinType: '肤质', eyebrowShape: '眉形', eyeShape: '眼型', threeFiveRatio: '三庭五眼', symmetry: '五官对称度' };\n", '')
-print('dimOrder/dimLabels removed')
+if old_line in content:
+    content = content.replace(old_line, new_lines, 1)
+    print('Fix 2 applied: archive reupload nav fixed')
+else:
+    print('ERROR: Fix 2 pattern not found')
 
 with open(path, 'w', encoding='utf-8') as f:
     f.write(content)
-print('File written successfully')
+
+print('Done')

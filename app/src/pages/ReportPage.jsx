@@ -162,6 +162,18 @@ export default function ReportPage() {
   });
   const [tier1Report, setTier1Report] = useState(null);
   const [preview, setPreview] = useState(state.preview || sessionStorage.getItem('capture_preview') || null);
+
+  // Restore photo preview from R2 when tier1 report is loaded (key format: face-photos/{userId}/{reportId}.jpg)
+  useEffect(() => {
+    if (!reportId) return;
+    try {
+      const token = localStorage.getItem('session_token');
+      const userId = token ? JSON.parse(window.atob(token.split('.')[1])).user_id : null;
+      if (userId) {
+        setPreview('/api/r2-proxy?key=face-photos/' + encodeURIComponent(userId) + '/' + encodeURIComponent(reportId) + '.jpg&bucket=temp');
+      }
+    } catch {}
+  }, [reportId]);
   const [openPhoto, setOpenPhoto] = useState(null);
   const [tier2Status, setTier2Status] = useState(null);
   const [tier2Content, setTier2Content] = useState(null);
@@ -773,7 +785,9 @@ export default function ReportPage() {
           <div className="report-tab-content">
             {!reportId ? <div className="report-loading">加载中...</div>
             : !tier2Status ? <div className="report-loading">加载中...</div>
-            : tier2Generation?.generationStatus === 'not_found' || tier2Generation?.generationStatus === 'failed' ? (
+            : tier2Generation?.generationStatus === 'processing' || tier2Processing ? (
+              <div className="report-loading"><div className="report-loading-spinner" /><p>AI 正在生成进阶报告，请稍候…</p></div>
+            ) : (
               <div className="report-unlock-prompt">
                 <div className="report-unlock-icon">🔒</div>
                 <p className="report-unlock-text">选择方式解锁进阶报告</p>
@@ -797,64 +811,12 @@ export default function ReportPage() {
                 {shareDailyLimitExceeded && (
                   <p className="report-daily-limit-text">今日进阶报告次数已用完，明天再来吧</p>
                 )}
-                <button className="report-unlock-btn" onClick={handleShareReport} disabled={shareLoading || !reportId}>
-                  {shareLoading ? '生成分享中…' : '去分享解锁'}
-                </button>
-
               </div>
-            ) : tier2Generation?.generationStatus === 'failed' ? (
-              <div className="report-error">
-                <p>生成失败，请稍后重试</p>
-                <button onClick={() => {
-                  setTier2Generation(null);
-                  setTier2Status(null);
-                  setTier2Content(null);
-                  setTier2LoadError(null);
-                }}>重试</button>
-              </div>
-            ) : tier2Generation?.generationStatus === 'processing' || tier2Processing ? (
-              <div className="report-loading"><div className="report-loading-spinner" /><p>AI 正在生成进阶报告，请稍候…</p></div>
-            ) : !t2 ? <div className="report-loading">正在生成进阶报告...</div> : (
-              <>
-                <Tier2Result content={t2} isMock={!tier2Content} btnStyle={{background: btnColor}} onUnlockImage={handleAdFinish} />
-                <div className="report-section">
-                  <h2 className="report-section-title">AI 妆效效果图</h2>
-                  {!showAd && !imgUnlockLoading && imgResult === null && (
-                    <div className="report-img-cta">
-                      <button className="report-img-btn" onClick={handleUnlockImage}>🎬 看广告解锁效果图</button>
-                      <p className="report-img-hint">观看 5 秒广告即可解锁专属妆效预览图</p>
-                    </div>
-                  )}
-                  {imgUnlockLoading && <div className="report-img-loading">正在生成你的妆效美图…</div>}
-                  {imgResult && imgResult.imageUrl && (
-                    <div className="report-img-result"><img src={imgResult.imageUrl} alt="AI 妆效效果图" className="report-img" /></div>
-                  )}
-                  {imgResult && !imgResult.imageUrl && (
-                    <div className="report-img-fail">
-                      {imgResult.reason === 'referral_not_confirmed' && (
-                        <><p className="report-fail-text">还需要好友完成分析才能解锁效果图</p>
-                        <button className="report-retry-btn" onClick={handleUnlockImage}>稍后重试</button></>
-                      )}
-                      {imgResult.reason === 'daily_limit_exceeded' && <p className="report-fail-text">今日解锁次数已用完，明天再来吧</p>}
-                      {imgResult.reason === 'ai_generation_failed' && (
-                        <><p className="report-fail-text">生成失败，请重试</p>
-                        {retryable && <button className="report-retry-btn" onClick={handleRetryUnlock}>重试</button>}</>
-                      )}
-                      {(imgResult.reason === 'auth_expired' || imgResult.reason === 'network_error' || imgResult.reason === 'unknown') && (
-                        <><p className="report-fail-text">{imgResult.message || '解锁失败，请稍后重试'}</p>
-                        {imgResult.reason !== 'auth_expired' && <button className="report-retry-btn" onClick={handleUnlockImage}>重试</button>}
-                        {imgResult.reason === 'auth_expired' && <button className="report-retry-btn" onClick={async () => { await removeStorageItem(STORAGE_KEYS.SESSION_TOKEN); window.location.href = '/login'; }}>重新登录</button>}
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </>
             )}
           </div>
         )}
 
-        {/* 专属 */}
+
         {activeTab === '专属' && (
           <div className="report-tab-content">
             {tier3LoadError && <div className="report-error"><p>{tier3LoadError}</p><button onClick={() => { setTier3LoadError(null); }}>重试</button></div>}

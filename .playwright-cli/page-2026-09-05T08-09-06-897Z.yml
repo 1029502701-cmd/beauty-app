@@ -1,0 +1,23 @@
+- generic [ref=f4e15]:
+  - generic [ref=f4e16]:
+    - generic [ref=f4e17]: 📷
+    - generic [ref=f4e19]:
+      - generic [ref=f4e20]: 温柔知性风，适合日常淡妆
+      - generic [ref=f4e21]: 清透裸妆感，凸显自然美
+    - paragraph [ref=f4e23]: 你的五官比例协调，笑起来很有感染力
+    - paragraph [ref=f4e26]: 扫码查看我的分析报告
+  - generic [ref=f4e27]:
+    - button "‹ 返回" [ref=f4e28] [cursor=pointer]
+    - generic [ref=f4e29]: 美妆分析报告
+    - button "我的档案" [ref=f4e30] [cursor=pointer]
+  - generic [ref=f4e31]:
+    - button "初识" [ref=f4e32] [cursor=pointer]
+    - button "进阶" [ref=f4e33] [cursor=pointer]
+    - button "专属" [ref=f4e34] [cursor=pointer]
+  - generic [ref=f4e35]:
+    - generic [ref=f4e36]:
+      - paragraph [ref=f4e37]: 请上传一张正面清晰自拍，方便我们为你生成美妆建议
+      - button "📁 选择照片" [ref=f4e39] [cursor=pointer]:
+        - generic [ref=f4e40]: 📁
+        - text: 选择照片
+    - button "✨ 达人入驻" [ref=f4e41] [cursor=pointer]

@@ -1,0 +1,13 @@
+- generic [ref=f5e16]:
+  - generic [ref=f5e17]:
+    - img "你的照片" [ref=f5e19]
+    - generic [ref=f5e20]:
+      - generic [ref=f5e21]: 温柔知性风，适合日常淡妆
+      - generic [ref=f5e22]: 清透裸妆感，凸显自然美
+    - paragraph [ref=f5e24]: 你的五官比例协调，笑起来很有感染力
+    - paragraph [ref=f5e27]: 扫码查看我的分析报告
+  - generic [ref=f5e28]:
+    - generic [ref=f5e29]: ⚠️
+    - paragraph [ref=f5e30]: 报告已失效
+    - paragraph [ref=f5e31]: 该报告不存在或已被清理，请重新拍照生成。
+    - button "返回首页重新拍照" [ref=f5e32] [cursor=pointer]

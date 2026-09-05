@@ -1,0 +1,23 @@
+- generic [ref=f4e16]:
+  - generic [ref=f4e17]:
+    - img "你的照片" [ref=f4e19]
+    - generic [ref=f4e20]:
+      - generic [ref=f4e21]: 温柔知性风，适合日常淡妆
+      - generic [ref=f4e22]: 清透裸妆感，凸显自然美
+    - paragraph [ref=f4e24]: 你的五官比例协调，笑起来很有感染力
+    - paragraph [ref=f4e27]: 扫码查看我的分析报告
+  - generic [ref=f4e28]:
+    - button "‹ 返回" [ref=f4e29] [cursor=pointer]
+    - generic [ref=f4e30]: 美妆分析报告
+    - button "我的档案" [ref=f4e31] [cursor=pointer]
+  - generic [ref=f4e32]:
+    - button "初识" [ref=f4e33] [cursor=pointer]
+    - button "进阶" [active] [ref=f4e34] [cursor=pointer]
+    - button "专属" [ref=f4e35] [cursor=pointer]
+  - generic [ref=f4e44]:
+    - generic [ref=f4e45]: 🔒
+    - paragraph [ref=f4e46]: 选择方式解锁进阶报告
+    - generic [ref=f4e47]:
+      - button "分享解锁" [ref=f4e48] [cursor=pointer]
+      - button "看广告解锁" [ref=f4e49] [cursor=pointer]
+    - paragraph [ref=f4e50]: 分享邀请好友完成分析，或观看5秒广告即可解锁

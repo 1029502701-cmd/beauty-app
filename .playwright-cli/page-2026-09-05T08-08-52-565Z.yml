@@ -1,0 +1,12 @@
+- generic [ref=f4e3]:
+  - generic [ref=f4e4]:
+    - button "💄 AI 美妆" [ref=f4e5] [cursor=pointer]:
+      - generic [ref=f4e6]: 💄
+      - generic [ref=f4e7]: AI 美妆
+    - button "💬 聊天AI" [ref=f4e8] [cursor=pointer]:
+      - generic [ref=f4e9]: 💬
+      - generic [ref=f4e10]: 聊天AI
+    - button "+ 更多功能开发中..." [ref=f4e11]:
+      - generic [ref=f4e12]: +
+      - generic [ref=f4e13]: 更多功能开发中...
+  - button "退出登录" [ref=f4e14] [cursor=pointer]

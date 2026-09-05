@@ -194,7 +194,9 @@ export default function Capture() {
 
   const handleViewReport = useCallback((reportIdVal) => {
     const stored = sessionStorage.getItem('capture_report_id');
-    navigate('/report', { reportId: reportIdVal, preview, reportData: stored ? null : reportData });
+    // 优先使用当前分析的 preview；若是回看历史档案（preview 为 null），则从 sessionStorage 读取
+    const previewForNav = preview || sessionStorage.getItem('capture_preview') || null;
+    navigate('/report', { reportId: reportIdVal, preview: previewForNav, reportData: stored ? null : reportData });
   }, [preview, reportData]);
 
   const startAnalysis = useCallback((base64) => {
@@ -267,7 +269,7 @@ export default function Capture() {
         setStage('error');
       }
     }, API_TIMEOUT_MS);
-  }, [token, stage, refToken, apiReady, apiError, preview]);
+  }, [token, stage, refToken]);
 
   const handleSelectPhoto = useCallback(() => {
     fileInputRef.current?.click();

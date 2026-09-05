@@ -3,7 +3,7 @@ import { AuthContext } from '../context/AuthContext.jsx';
 import { BASE } from '../api.js';
 
 const PRODUCTS = [
-  { id: 'ai-beauty', label: 'AI 美妆', icon: '💄', path: '/report' },
+  { id: 'ai-beauty', label: 'AI 美妆', icon: '💄' },
   { id: 'chat-ai', label: '聊天AI', icon: '💬', path: 'https://gxvipvpn2.ccwu.cc' },
 ];
 
@@ -66,6 +66,15 @@ export default function Home({ onLogout }) {
     }
   };
 
+  const handleAiBeautyClick = () => {
+    const id = sessionStorage.getItem('capture_report_id');
+    if (id) {
+      navigate('/report?id=' + encodeURIComponent(id));
+    } else {
+      navigate('/report');
+    }
+  };
+
   return (
     <div className="home-page">
       <div className="home-product-grid">
@@ -73,7 +82,7 @@ export default function Home({ onLogout }) {
           <button
             key={p.id}
             className="home-product-card"
-            onClick={() => navigate(p.path)}
+            onClick={p.id === 'ai-beauty' ? handleAiBeautyClick : () => navigate(p.path)}
           >
             <span className="home-product-icon">{p.icon}</span>
             <span className="home-product-label">{p.label}</span>
