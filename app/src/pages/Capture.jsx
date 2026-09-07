@@ -327,9 +327,6 @@ export default function Capture() {
         <div className="capture-header">
           <button className="capture-back-btn" onClick={navigateHome}>‹ 返回</button>
           <span className="capture-title">生成美妆报告</span>
-          <button className="capture-archive-btn" onClick={openArchive} title="我的档案">
-            📁
-          </button>
         </div>
         <div className="capture-select-area">
           <p className="capture-hint">请上传一张正面清晰自拍，方便我们为你生成美妆建议</p>
@@ -404,9 +401,6 @@ export default function Capture() {
       <div className="capture-header">
         <button className="capture-back-btn" onClick={navigateHome}>‹ 返回</button>
         <span className="capture-title">生成美妆报告</span>
-        <button className="capture-archive-btn" onClick={openArchive} title="我的档案">
-          📁
-        </button>
       </div>
       {preview && (
         <div className="capture-preview-wrap">
