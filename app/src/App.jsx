@@ -96,7 +96,10 @@ function Router() {
       if (!token && callbackTokenRef.current === null && effectivePath !== '/login' && effectivePath !== '/admin/login' && !effectivePath.startsWith('/admin')) {
         console.log('[DIAG] A2 auth-guard REDIRECT to auth (no token, path=', effectivePath, ')');
         const target = encodeURIComponent(window.location.href || '/');
-        window.location.href = 'https://auth.meijian.top?redirect=' + target;
+              const useLocalLogin = new URL(window.location.href).searchParams.get('local') === '1';
+      if (!useLocalLogin) {
+window.location.href = 'https://auth.meijian.top?redirect=' + target;
+      }
       }
       // Authenticated: redirect root / to /home (skip while processing callback token)
       else if (!tokenProcessRef.current && token && (effectivePath === '' || effectivePath === '/')) {
@@ -126,6 +129,7 @@ function Router() {
 
   if (loading) return <div className="loading">加载中...</div>;
 
+  if (page === '/login') return <Login onLogin={handleLogin} />;
   if (page === '/admin/login') return <AdminLogin />;
   if (page === '/admin/dashboard') return <AdminRequireAuth><AdminDashboard /></AdminRequireAuth>;
 

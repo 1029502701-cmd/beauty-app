@@ -34,11 +34,11 @@ export default function Login({ onLogin }) {
   const [codeSending, setCodeSending] = useState(false);
   const [codeCountdown, setCodeCountdown] = useState(0);
 
-  // Profile modal state
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [pendingSessionId, setPendingSessionId] = useState(null);
   const [selectedGender, setSelectedGender] = useState('');
   const [selectedAgeRange, setSelectedAgeRange] = useState('');
+  const [showSetPassword, setShowSetPassword] = useState(false);
 
   useEffect(() => {
     fetch('/api/config/sms_login_enabled')
@@ -65,9 +65,8 @@ export default function Login({ onLogin }) {
         headers: { 'Authorization': 'Bearer ' + sessionId },
       });
       const data = await res.json();
-      if (!res.ok) return true; // assume complete on error
+      if (!res.ok) return true;
       if (data.completed) return true;
-      // Not complete — show modal
       setPendingSessionId(sessionId);
       setShowProfileModal(true);
       return false;
@@ -92,6 +91,11 @@ export default function Login({ onLogin }) {
         return;
       }
       if (!res.ok) throw new Error(data.error || '登录失败');
+      if (data.hasPassword === false) {
+        setShowSetPassword(true);
+        await login(data.sessionId);
+        return;
+      }
       const isLoggedIn = await checkProfile(data.sessionId);
       if (isLoggedIn) await finishLogin(data.sessionId);
     } catch (e) { setError(e.message || '登录失败，请重试'); }
@@ -119,6 +123,11 @@ export default function Login({ onLogin }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '登录失败');
+      if (data.hasPassword === false) {
+        setShowSetPassword(true);
+        await login(data.sessionId);
+        return;
+      }
       const isLoggedIn = await checkProfile(data.sessionId);
       if (isLoggedIn) await finishLogin(data.sessionId);
     } catch (e) { setError(e.message || '登录失败，请重试'); }

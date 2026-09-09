@@ -63,6 +63,6 @@ export const GET: FrameworkCallbackOptions['GET'] = async (context) => {
 
   const sessionId = generateId();
   await env.SESSION_KV.put('session:' + sessionId, JSON.stringify({ userId, gender: url.searchParams.get("gender"), age_range: url.searchParams.get("age_range"), expiresAt: now + 7 * 24 * 60 * 60 }), { expirationTtl: 7 * 24 * 60 * 60 });
-  return new Response(JSON.stringify({ sessionId, isNew, needPassword }), { headers: { 'Content-Type': 'application/json' } });
+  return new Response(JSON.stringify({ sessionId, isNew, needPassword, hasPassword: needPassword }), { headers: { 'Content-Type': 'application/json' } });
 };
 export const onRequestGet = async (...args) => GET(args[0]);
