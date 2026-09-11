@@ -1,22 +1,24 @@
 name = "beauty-scheduled-worker"
 main = "src/index.ts"
-compatibility_date = "2024-11-01"
+compatibility_date = "2025-01-01"
 
 [triggers]
-crons = ["0 16 * * *"]  # UTC 16:00 = 北京时间次日00:00
+crons = ["0 16 * * *", "* * * * *"]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "beauty-app"
-database_id = "<D1_DATABASE_ID>"
+database_id = "597322ae-1bef-45d5-90bf-7606c92c524c"
 
 [[r2_buckets]]
-binding = "R2_TEMP"      # 临时图片（第一层/第二层当天清理）
+binding = "R2_TEMP"
 bucket_name = "beauty-temp"
 
 [[r2_buckets]]
-binding = "R2_PERM"      # 永久图片（妆容照、达人照等）
+binding = "R2_PERM"
 bucket_name = "beauty-perm"
 
 [vars]
 TZ = "Asia/Shanghai"
+TAOBAO_APP_KEY = "35375517"
+TAOBAO_PID = "mm_26868668_3430700405_116312800133"
