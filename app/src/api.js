@@ -1,4 +1,4 @@
-export const BASE = '/api';
+﻿export const BASE = '/api';
 
 // Module-level flag: set true when a 401/403 is intercepted, read by RequireAuth
 let tokenInvalid = false;
@@ -31,6 +31,26 @@ export const authApi = {
   probe: () => request('/reports/mine', { method: 'GET' }),
   getProfile: () => request('/auth/profile', { method: 'GET' }),
   setProfile: (gender, age_range) => request('/auth/profile', { method: 'POST', body: JSON.stringify({ gender, age_range }) }),
+};
+
+// ── Points APIs (via auth-center, cross-origin allowed) ───────────────────────
+export const pointsApi = {
+  getBalance: async () => {
+    const token = localStorage.getItem('session_token');
+    if (!token) throw new Error('未登录');
+    const res = await fetch('https://auth.meijian.top/api/points/balance', {
+      headers: { Authorization: 'Bearer ' + token },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        tokenInvalid = true;
+        localStorage.removeItem('session_token');
+      }
+      throw new Error(data?.error || '获取积分失败');
+    }
+    return data.balance ?? 0;
+  },
 };
 
 // ── Admin APIs ──────────────────────────────────────────────────────────────────

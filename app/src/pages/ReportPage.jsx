@@ -6,6 +6,7 @@ import { getCompliment } from './complimentMap.js';
 import { BASE } from '../api.js';
 import { removeStorageItem, STORAGE_KEYS } from '../utils/storage.js';
 import CapturePhotoUpload from './CapturePhotoUpload.jsx';
+import Tier2PhotoUpload from './Tier2PhotoUpload.jsx';
 
 const RESULT_ITEMS = [
   { key: 'faceShape',        label: '脸型',         icon: '◎' },
@@ -36,6 +37,21 @@ const TIER3_FALLBACK_OPTIONS = {
 function navigateBack() {
   window.history.pushState({}, '', '/home');
   window.dispatchEvent(new PopStateEvent('popstate'));
+}
+
+function navigateToCapture() {
+  window.history.pushState({}, '', '/capture');
+  window.dispatchEvent(new PopStateEvent('popstate'));
+}
+
+// 将 Unix 秒时间戳格式化为 YYYY-MM-DD（北京时间展示）
+function formatExpireDate(tsSec) {
+  if (!tsSec) return '';
+  const d = new Date(tsSec * 1000);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function AdOverlay({ duration, onComplete }) {
@@ -180,8 +196,10 @@ export default function ReportPage() {
   const [tier2LoadError, setTier2LoadError] = useState(null);
   const [tier2Generation, setTier2Generation] = useState(null);
   const [tier2Processing, setTier2Processing] = useState(false);
+  const [tier2FacePhotoKey, setTier2FacePhotoKey] = useState(null);
   const [imgUnlockLoading, setImgUnlockLoading] = useState(false);
   const [showAd, setShowAd] = useState(false);
+  const [adMode, setAdMode] = useState('image'); // 'image'=AI妆效图解锁 'tier2'=进阶报告广告解锁
   const [imgResult, setImgResult] = useState(null);
   const [retryable, setRetryable] = useState(false);
   const unlockBusyRef = useRef(false);
@@ -191,9 +209,14 @@ export default function ReportPage() {
   const [shareLoading, setShareLoading] = useState(false);
   const [shareDone, setShareDone] = useState(false);
   const [adUnlockLoading, setAdUnlockLoading] = useState(false);
+  // 重新拍摄解锁：看广告消耗每日 1 次名额，解锁后展示照片上传
+  const [redoUnlocked, setRedoUnlocked] = useState(false);
+  const [redoTier2Id, setRedoTier2Id] = useState(null);
   const [shareDailyLimitExceeded, setShareDailyLimitExceeded] = useState(false);
   const [reportValid, setReportValid] = useState(null); // null = not checked yet
   const tier2TimerRef = useRef(null); // track polling interval to prevent multiple simultaneous timers
+  const tier2StuckSinceRef = useRef(null); // 看门狗：processing 起始时间
+  const tier2StuckRetriesRef = useRef(0); // 重新触发次数
   const [btnColor, setBtnColor] = useState("#000000");
   // Tier3 state
   const [tier3TokenStatus, setTier3TokenStatus] = useState(null);
@@ -204,6 +227,8 @@ export default function ReportPage() {
   useEffect(() => { tier3AnswersRef.current = tier3Answers; }, [tier3Answers]);
   const [tier3Generating, setTier3Generating] = useState(false);
   const [tier3Content, setTier3Content] = useState(null);
+  // 个人中心展示：用户已生成的专属（tier3）报告简要信息（妆容风格 + 到期时间）
+  const [myTier3, setMyTier3] = useState(null);
   const [tier3Error, setTier3Error] = useState(null);
   const [tier3RedeemCode, setTier3RedeemCode] = useState('');
   const [tier3Redeeming, setTier3Redeeming] = useState(false);
@@ -242,13 +267,23 @@ export default function ReportPage() {
     return () => { cancelled = true; };
   }, [reportId, token]);
 
-  // Load tier2 generation status on mount
+  // 初识报告不存在/已失效：清除过期的报告指针，避免首页再次指向失效报告，
+  // 让「初识」标签直接展示拍照上传页
   useEffect(() => {
-    if (!reportId) return;
+    if (reportValid === false) {
+      setPreview(null);
+      try { sessionStorage.removeItem('capture_report_id'); } catch {}
+    }
+  }, [reportValid]);
+
+  // Load tier2 generation status on mount
+  // 进阶报告独立：没有初识报告（reportId 为空）也查询该用户最新的进阶报告
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(BASE + '/tier2/status?tier1ReportId=' + encodeURIComponent(reportId), {
+        const qs = reportId ? '?tier1ReportId=' + encodeURIComponent(reportId) : '';
+        const res = await fetch(BASE + '/tier2/status' + qs, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) throw new Error('请求失败: ' + res.status);
@@ -256,13 +291,20 @@ export default function ReportPage() {
         if (!cancelled) {
           setTier2Generation(data);
           setTier2Status(data);
+          if (data.facePhotoKey) setTier2FacePhotoKey(data.facePhotoKey);
           if (data.generationStatus === 'ready' && data.content) {
             setTier2Content(data.content);
           }
-          // pending 状态也视为需要触发生成（兼容旧数据）
-          if (data.generationStatus === 'pending') {
-            setTier2Generation({ generationStatus: 'processing', tier2ReportId: data.tier2ReportId });
-            setTier2Status({ generationStatus: 'processing', tier2ReportId: data.tier2ReportId });
+          // pending + 关联初识报告（历史数据）：主动触发生成一次
+          // 独立 pending（无初识关联）：等用户上传照片，不再自动触发，避免失败循环
+          if (data.generationStatus === 'pending' && data.sourceTier1ReportId) {
+            setTier2Generation({ ...data, generationStatus: 'processing' });
+            setTier2Status({ ...data, generationStatus: 'processing' });
+            fetch(BASE + '/tier2/generate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ reportId: data.tier2ReportId }),
+            }).catch(() => {});
           }
         }
       } catch {
@@ -276,7 +318,7 @@ export default function ReportPage() {
   }, [reportId, token]);
 
   // Use a ref for generation state so the interval callback always reads current values.
-  // Only depend on [reportId, token] so the interval is created once and never restarted.
+  // 只依赖状态字符串（而非整个对象），避免每次轮询都重建定时器
   const tier2GenerationRef = useRef(tier2Generation);
   useEffect(() => { tier2GenerationRef.current = tier2Generation; }, [tier2Generation]);
 
@@ -287,7 +329,7 @@ export default function ReportPage() {
     const interval = setInterval(async () => {
       if (aborted) return;
       const gen = tier2GenerationRef.current;
-      if (!reportId || !gen?.tier2ReportId) return;
+      if (!gen?.tier2ReportId) return;
       try {
         const res = await fetch(BASE + '/tier2/status?tier2Id=' + encodeURIComponent(gen.tier2ReportId), {
           headers: { Authorization: `Bearer ${token}` },
@@ -295,22 +337,62 @@ export default function ReportPage() {
         if (!res.ok) throw new Error('请求失败: ' + res.status);
         const data = await res.json();
         if (aborted) return;
+        if (data.generationStatus === 'pending') {
+          // pending：只有关联初识报告的历史数据才自动续生成；独立报告停止轮询，界面转为上传照片入口
+          if (data.sourceTier1ReportId) {
+            setTier2Generation({ ...data, generationStatus: 'processing' });
+            setTier2Status({ ...data, generationStatus: 'processing' });
+            fetch(BASE + '/tier2/generate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ reportId: data.tier2ReportId }),
+            }).catch(() => {});
+          } else {
+            setTier2Generation(data);
+            setTier2Status(data);
+            aborted = true;
+            setTier2Processing(false);
+            clearInterval(interval);
+            tier2TimerRef.current = null;
+          }
+          return;
+        }
+        if (data.generationStatus === 'processing') {
+          // 看门狗：卡 processing 超 4 分 40 秒（与服务端 5 分钟孤儿规则对齐）：
+          // 关联初识的报告最多重新触发 3 次；独立报告无初识数据可生成，不再自动重触发，
+          // 直接标记 failed，界面引导重新上传照片（杜绝"失败→重新生成→再失败"死循环）
+          if (tier2StuckSinceRef.current === null) tier2StuckSinceRef.current = Date.now();
+          if (Date.now() - tier2StuckSinceRef.current > 280000) {
+            tier2StuckRetriesRef.current += 1;
+            if (data.sourceTier1ReportId && tier2StuckRetriesRef.current <= 3) {
+              tier2StuckSinceRef.current = Date.now();
+              console.log('[ReportPage] tier2 stuck in processing, re-triggering generation, attempt ' + tier2StuckRetriesRef.current);
+              fetch(BASE + '/tier2/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ reportId: data.tier2ReportId }),
+              }).catch(() => {});
+              return;
+            }
+            setTier2Generation({ ...data, generationStatus: 'failed' });
+            setTier2Status({ ...data, generationStatus: 'failed' });
+            aborted = true;
+            setTier2Processing(false);
+            clearInterval(interval);
+            tier2TimerRef.current = null;
+          }
+          return;
+        }
+        tier2StuckSinceRef.current = null;
+        tier2StuckRetriesRef.current = 0;
         setTier2Generation(data);
         setTier2Status(data);
-        if (data.generationStatus === 'ready') {
-          aborted = true;
-          setTier2Processing(false);
-          clearInterval(interval);
-          tier2TimerRef.current = null;
-          if (data.content) {
-            setTier2Content(data.content);
-          }
-        } else if (data.generationStatus === 'failed') {
-          aborted = true;
-          setTier2Processing(false);
-          clearInterval(interval);
-          tier2TimerRef.current = null;
-        }
+        if (data.facePhotoKey) setTier2FacePhotoKey(data.facePhotoKey);
+        if (data.content) setTier2Content(data.content);
+        aborted = true;
+        setTier2Processing(false);
+        clearInterval(interval);
+        tier2TimerRef.current = null;
       } catch {
         // keep polling on transient errors
       }
@@ -324,7 +406,7 @@ export default function ReportPage() {
       }
       setTier2Processing(false);
     };
-  }, [reportId, token, tier2Generation]);
+  }, [reportId, token, tier2Generation?.generationStatus]);
 
 
   // Fetch tier2_btn_color from admin config on mount
@@ -373,6 +455,23 @@ export default function ReportPage() {
     void load();
     return () => { cancelled = true; };
   }, [activeTab, token]);
+
+  // 个人中心：加载用户已生成的专属（tier3）报告简要信息
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(BASE + '/tier3/content', { headers: { Authorization: 'Bearer ' + token } });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && data.found) {
+          setMyTier3({ style: data.style || null, scenario: data.scenario || null, expireAt: data.expireAt || null });
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [token, showArchive]);
   const handleTier3Submit = useCallback(async () => {
     if (!reportId || tier3Generating || !token) return;
     const dims = ['makeupStyle', 'scenario', 'skillLevel', 'timeCost'];
@@ -589,28 +688,13 @@ export default function ReportPage() {
         }
       } catch {}
       setShareDone(true);
-      // share.ts 现在返回 tier2ReportId，直接开始轮询
-      const shareData = await res.json();
-      if (shareData?.tier2ReportId) {
-        setTier2Generation({ generationStatus: 'processing', tier2ReportId: shareData.tier2ReportId });
-      } else if (tier2Generation?.generationStatus === 'not_found' || tier2Generation?.generationStatus === 'failed') {
-        const initRes = await fetch(BASE + '/tier2/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ reportId }),
-        });
-        const initData = await initRes.json();
-        if (initRes.ok && initData?.tier2ReportId) {
-          setTier2Generation({ generationStatus: 'processing', tier2ReportId: initData.tier2ReportId });
-        }
-      }
     } catch (err) { console.error('[ReportPage] 分享异常:', err); }
     finally { setShareLoading(false); }
   }, [shareLoading, reportId, token]);
 
   const handleUnlockImage = useCallback(() => {
     if (!reportId || imgUnlockLoading || unlockBusyRef.current) return;
-    setShowAd(true); setImgResult(null); setRetryable(false);
+    setAdMode('image'); setShowAd(true); setImgResult(null); setRetryable(false);
     unlockBusyRef.current = true;
   }, [reportId, imgUnlockLoading]);
 
@@ -639,12 +723,24 @@ export default function ReportPage() {
 
   const handleRetryUnlock = useCallback(() => {
     if (!reportId) return;
-    setShowAd(true); setImgResult(null); setRetryable(false);
+    setAdMode('image'); setShowAd(true); setImgResult(null); setRetryable(false);
     unlockBusyRef.current = true;
   }, [reportId]);
 
 
-  // --- 广告解锁进阶报告（不依赖分享，仅消耗每日限额）---
+  // --- 广告解锁进阶报告（独立报告，不依赖初识，仅消耗每日限额）：先播放广告，结束后调解锁接口，再上传照片生成 ---
+  const handleStartTier2AdUnlock = useCallback(() => {
+    if (adUnlockLoading || unlockBusyRef.current) return;
+    setAdMode('tier2');
+    setShowAd(true);
+    unlockBusyRef.current = true;
+  }, [adUnlockLoading]);
+
+  // 分析期间并行的广告：播完即关，不触发后端（报告由轮询驱动，次数在分析成功完成后由后端计入）
+  const handleAdFinishForTier2Gen = useCallback(() => {
+    setShowAd(false);
+  }, []);
+
   const handleAdFinishForTier2 = useCallback(async () => {
     setShowAd(false);
     setAdUnlockLoading(true);
@@ -652,7 +748,7 @@ export default function ReportPage() {
       const res = await fetch(BASE + '/tier2/unlock-by-ad', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ tier1ReportId: reportId }),
+        body: JSON.stringify({}),
       });
       const data = await res.json();
       if (!res.ok || data?.error === 'daily_limit_exceeded') {
@@ -661,15 +757,78 @@ export default function ReportPage() {
         }
         return;
       }
-      if (data?.tier2ReportId) {
-        setTier2Generation({ generationStatus: 'processing', tier2ReportId: data.tier2ReportId });
-      }
-    } catch (e) {
-      console.error('[ReportPage] unlock-by-ad 异常:', e);
+      // 解锁成功：独立报告进入 pending，界面展示照片上传入口（上传后开始生成与轮询）
+      setTier2Generation({ generationStatus: 'pending', tier2ReportId: data.tier2ReportId, sourceTier1ReportId: null, unlocked: true });
+      setTier2Status({ generationStatus: 'pending', tier2ReportId: data.tier2ReportId, sourceTier1ReportId: null, unlocked: true });
     } finally {
       setAdUnlockLoading(false);
+      unlockBusyRef.current = false;
     }
-  }, [reportId, token]);
+  }, [token]);
+
+  // --- 重新拍摄解锁：看广告消耗每日 1 次名额（复用 /tier2/unlock-by-ad），解锁后展示照片上传 ---
+  const handleStartRedoAdUnlock = useCallback(() => {
+    if (adUnlockLoading || unlockBusyRef.current) return;
+    setAdMode('tier2redo');
+    setShowAd(true);
+    unlockBusyRef.current = true;
+  }, [adUnlockLoading]);
+
+  const handleAdFinishForTier2Redo = useCallback(async () => {
+    setShowAd(false);
+    setAdUnlockLoading(true);
+    try {
+      const res = await fetch(BASE + '/tier2/unlock-by-ad', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok || data?.error === 'daily_limit_exceeded') {
+        if (data?.error === 'daily_limit_exceeded') {
+          alert(data.message || '今日进阶报告次数已用完，明天再来吧');
+        }
+        return;
+      }
+      // 解锁成功：展示重新拍摄上传入口（复用当前报告记录生成）
+      setRedoTier2Id(data.tier2ReportId);
+      setRedoUnlocked(true);
+    } finally {
+      setAdUnlockLoading(false);
+      unlockBusyRef.current = false;
+    }
+  }, [token]);
+
+  // --- 独立报告照片提交成功：进入生成中，开始轮询 ---
+  const handleTier2PhotoStarted = useCallback((t2Id) => {
+    if (!t2Id) return;
+    tier2StuckSinceRef.current = null;
+    tier2StuckRetriesRef.current = 0;
+    setTier2Content(null);
+    setTier2Generation((prev) => ({ ...(prev || {}), generationStatus: 'processing', tier2ReportId: t2Id }));
+    setTier2Status((prev) => ({ ...(prev || {}), generationStatus: 'processing', tier2ReportId: t2Id }));
+    // 分析期间并行播放广告：广告与 AI 生成同时进行；广告结束若报告未出则停留在"生成中"兜底动画
+    setAdMode('tier2gen');
+    setShowAd(true);
+    setRedoUnlocked(false);
+  }, []);
+
+  // --- 生成失败后重新生成（仅限关联初识报告的历史数据；不消耗广告解锁次数）
+  // 独立报告走"重新上传照片"入口，不在此处触发，避免无数据空生成 ---
+  const handleRetryTier2Generate = useCallback(() => {
+    const gen = tier2GenerationRef.current;
+    if (!gen?.tier2ReportId || !gen.sourceTier1ReportId) return;
+    tier2StuckSinceRef.current = null;
+    tier2StuckRetriesRef.current = 0;
+    setTier2Generation({ ...gen, generationStatus: 'processing' });
+    setTier2Status({ ...gen, generationStatus: 'processing' });
+    fetch(BASE + '/tier2/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ reportId: gen.tier2ReportId }),
+    }).catch(() => {});
+  }, [token]);
+
 
   const initReport = tier1Report;
   const resolvedResults = RESULT_ITEMS.map((item) => {
@@ -681,6 +840,11 @@ export default function ReportPage() {
   const highlightText = initReport?.highlight ?? '你的五官比例协调，笑起来很有感染力';
 
   const t2 = tier2Content;
+  const tier2FacePhotoUrl = tier2FacePhotoKey ? '/api/r2-proxy?key=' + encodeURIComponent(tier2FacePhotoKey) + '&bucket=temp' : null;
+
+  // 个人中心专属报告到期预警：到期时间 <= 5 天时标红
+  const tier3ExpireMs = myTier3?.expireAt ? myTier3.expireAt * 1000 : null;
+  const expiringSoon = tier3ExpireMs ? (tier3ExpireMs - Date.now()) <= 5 * 24 * 60 * 60 * 1000 : false;
 
   return (
     <RequireAuth fallbackPath="/home">
@@ -696,25 +860,10 @@ export default function ReportPage() {
           <div className="share-card-qr-wrap"><canvas ref={qrCanvasRef} className="share-card-qr" /><p className="share-card-qr-hint">扫码查看我的分析报告</p></div>
         </div>
 
-        {reportValid === false && (
-          <div className="report-invalid-wrap">
-            <div className="report-invalid-icon">⚠️</div>
-            <p className="report-invalid-title">报告已失效</p>
-            <p className="report-invalid-desc">该报告不存在或已被清理，请重新拍照生成。</p>
-            <button className="report-invalid-btn" onClick={navigateBack}>返回首页重新拍照</button>
-          </div>
-        )}
-
-        {reportValid === null && reportId && (
-          <div className="report-loading">正在验证报告...</div>
-        )}
-
-        {reportValid !== false && (
-          <>
-            <div className="report-header">
+        <div className="report-header">
           <button className="report-back-btn" onClick={navigateBack}>‹ 返回</button>
           <span className="report-title">美妆分析报告</span>
-          <button className="report-archive-btn" onClick={() => setShowArchive(true)}>我的档案</button>
+          <button className="report-archive-btn" onClick={() => setShowArchive(true)}>个人中心</button>
         </div>
 
         <div className="report-tabs">
@@ -726,7 +875,9 @@ export default function ReportPage() {
         {/* 初识 */}
         {activeTab === '初识' && (
           <div className="report-tab-content">
-            {!initReport ? (
+            {reportValid === null && reportId ? (
+              <div className="report-loading">正在验证报告...</div>
+            ) : reportValid === false || !initReport ? (
               <>
                 <CapturePhotoUpload
                   preview={preview}
@@ -769,12 +920,6 @@ export default function ReportPage() {
                     <p className="report-highlight-text">{highlightText}</p>
                   </div>
                 </div>
-                <div className="report-cta">
-                  <button className="report-cta-btn" onClick={handleShareReport} disabled={shareLoading || !reportId}>
-                    {shareLoading ? '生成分享中…' : shareDone ? '✓ 已分享' : '分享解锁进阶报告'}
-                  </button>
-                  <p className="report-cta-hint">分享后即可解锁进阶报告</p>
-                </div>
               </>
             )}
           </div>
@@ -783,39 +928,71 @@ export default function ReportPage() {
         {/* 进阶 */}
         {activeTab === '进阶' && (
           <div className="report-tab-content">
-            {!reportId ? <div className="report-loading">加载中...</div>
-            : !tier2Status ? <div className="report-loading">加载中...</div>
-            : tier2Generation?.generationStatus === 'processing' || tier2Processing ? (
-              <div className="report-loading"><div className="report-loading-spinner" /><p>AI 正在生成进阶报告，请稍候…</p></div>
-            ) : (
+            {tier2Content ? (
+              <>
+                <Tier2Result content={tier2Content} isMock={!tier2Content} btnStyle={{background: btnColor}} onUnlockImage={handleAdFinish} facePhotoUrl={tier2FacePhotoUrl} />
+                <div className="report-redo-upload">
+                  <div className="report-unlock-prompt">
+                    <div className="report-unlock-icon">🔄</div>
+                    <p className="report-unlock-text">重新拍摄生成进阶报告</p>
+                    <p className="report-unlock-hint">分析期间可看广告；生成失败不扣次数</p>
+                    {tier2Generation?.tier2ReportId ? (
+                      <Tier2PhotoUpload
+                        compact
+                        tier2ReportId={tier2Generation.tier2ReportId}
+                        onStarted={handleTier2PhotoStarted}
+                        title="请上传一张清晰的正面照片"
+                      />
+                    ) : null}
+                  </div>
+                </div>
+              </>
+            ) : tier2Generation?.generationStatus === 'processing' ? (
+              <div className="report-loading">
+                <div className="t2-spinner" />
+                <p>AI 正在生成进阶报告（约 2-4 分钟），请稍候…</p>
+              </div>
+            ) : tier2Generation?.generationStatus === 'failed' ? (
+              <div className="report-unlock-prompt">
+                <div className="report-unlock-icon">⚠️</div>
+                <p className="report-unlock-text">进阶报告生成失败</p>
+                <p className="report-unlock-hint">失败不扣次数，重新上传照片即可再次生成</p>
+                {tier2Generation?.tier2ReportId ? (
+                  <Tier2PhotoUpload
+                    compact
+                    tier2ReportId={tier2Generation.tier2ReportId}
+                    onStarted={handleTier2PhotoStarted}
+                    title="重新上传照片"
+                  />
+                ) : (
+                  <Tier2PhotoUpload
+                    compact
+                    onStarted={handleTier2PhotoStarted}
+                    title="请上传一张清晰的正面照片"
+                  />
+                )}
+              </div>
+            ) : tier2Generation?.canGenerate === false ? (
               <div className="report-unlock-prompt">
                 <div className="report-unlock-icon">🔒</div>
-                <p className="report-unlock-text">选择方式解锁进阶报告</p>
-                <div className="report-unlock-options">
-                  <button
-                    className="report-unlock-btn"
-                    onClick={handleShareReport}
-                    disabled={shareLoading || !reportId}
-                  >
-                    {shareLoading ? '生成分享中…' : '分享解锁'}
-                  </button>
-                  <button
-                    className="report-unlock-btn-alt"
-                    onClick={handleAdFinishForTier2}
-                    disabled={adUnlockLoading || !reportId}
-                  >
-                    {adUnlockLoading ? '解锁中…' : '看广告解锁'}
-                  </button>
-                </div>
-                <p className="report-unlock-hint">分享邀请好友完成分析，或观看5秒广告即可解锁</p>
-                {shareDailyLimitExceeded && (
-                  <p className="report-daily-limit-text">今日进阶报告次数已用完，明天再来吧</p>
-                )}
+                <p className="report-unlock-text">今日进阶报告次数已用完</p>
+                <p className="report-unlock-hint">每天 1 次，明天再来吧</p>
+              </div>
+            ) : (
+              <div className="report-unlock-prompt">
+                <div className="report-unlock-icon">📷</div>
+                <p className="report-unlock-text">上传照片生成进阶报告</p>
+                <Tier2PhotoUpload
+                  compact
+                  tier2ReportId={tier2Generation?.generationStatus === 'pending' ? tier2Generation?.tier2ReportId : undefined}
+                  onStarted={handleTier2PhotoStarted}
+                  title="请上传一张清晰的正面照片"
+                />
+                <p className="report-unlock-hint">进阶报告独立生成，无需先完成初识报告；分析期间可看广告</p>
               </div>
             )}
           </div>
         )}
-
 
         {activeTab === '专属' && (
           <div className="report-tab-content">
@@ -920,12 +1097,7 @@ export default function ReportPage() {
           </div>
         )}
 
-          </>
-        )}
-
-        {reportValid !== false && (
-          showAd && <AdOverlay duration={AD_DURATION_SEC} onComplete={handleAdFinish} />
-        )}
+          {showAd && <AdOverlay duration={AD_DURATION_SEC} onComplete={adMode === 'tier2gen' ? handleAdFinishForTier2Gen : adMode === 'tier2' ? handleAdFinishForTier2 : adMode === 'tier2redo' ? handleAdFinishForTier2Redo : handleAdFinish} />}
           {openPhoto && (
             <div className="photo-lightbox-overlay" onClick={() => setOpenPhoto(null)}>
               <img className="photo-lightbox-img" src={openPhoto} alt="放大预览" />
@@ -935,26 +1107,39 @@ export default function ReportPage() {
           <div className="archive-overlay" onClick={() => setShowArchive(false)}>
             <div className="archive-modal" onClick={(e) => e.stopPropagation()}>
               <div className="archive-modal-header">
-                <span className="archive-modal-title">我的档案</span>
+                <span className="archive-modal-title">个人中心</span>
                 <button className="archive-modal-close" onClick={() => setShowArchive(false)}>✕</button>
               </div>
               <div className="archive-modal-body">
-                <p className="archive-modal-hint">已解锁的进阶报告将在此展示</p>
-                <div className="archive-empty">
-                  <p>暂无进阶报告</p>
-                  <p className="archive-empty-hint">完成初识报告并分享或看广告解锁进阶内容</p>
-                </div>
-                <button
-                  className="archive-reupload-btn"
-                  onClick={() => {
-                    setShowArchive(false);
-                    window.history.pushState({}, '', '/capture');
-                    window.dispatchEvent(new PopStateEvent('popstate'));
-                    return;
-                  }}
-                >
-                  🔄 重新上传，更换今日初识报告
-                </button>
+                {myTier3 ? (
+                  <div className="pc-report-card">
+                    <div className="pc-report-row">
+                      <span className="pc-report-label">妆容风格</span>
+                      <span className="pc-report-value">{myTier3.style || myTier3.scenario || '—'}</span>
+                    </div>
+                    {myTier3.expireAt ? (
+                      <div className="pc-report-row">
+                        <span className="pc-report-label">到期时间</span>
+                        <span className={"pc-report-value" + (expiringSoon ? " pc-expire-warn" : "")}>{formatExpireDate(myTier3.expireAt)}</span>
+                      </div>
+                    ) : null}
+                    {expiringSoon ? <p className="pc-expire-warning">⚠️ 专属报告即将到期，请及时查看</p> : null}
+                  </div>
+                ) : (
+                  <div className="archive-empty">
+                    <p>暂无专属报告</p>
+                    <p className="archive-empty-hint">在「专属」标签解锁并生成专属报告后，将在此展示</p>
+                    <button
+                      className="archive-reupload-btn"
+                      onClick={() => {
+                        setShowArchive(false);
+                        setActiveTab('专属');
+                      }}
+                    >
+                      ✨ 去生成专属报告
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>

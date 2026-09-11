@@ -1343,6 +1343,30 @@
   flex-direction: column;
   gap: 12px;
 }
+.pc-report-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+}
+.pc-report-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pc-report-label { font-size: 14px; color: var(--text); }
+.pc-report-value { font-size: 15px; font-weight: 600; color: var(--text-h); }
+.pc-report-value.pc-expire-warn { color: #e11d48; }
+.pc-expire-warning {
+  font-size: 12px;
+  color: #e11d48;
+  margin: 0;
+  text-align: right;
+}
 .archive-modal-hint {
   font-size: 13px;
   color: var(--text);
@@ -1389,3 +1413,118 @@
   gap: 16px;
   padding: 8px 0 24px;
 }
+
+/* ===== Points Balance Bar (Home) ===== */
+.home-points-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  width: 100%;
+  max-width: 400px;
+}
+.home-points-icon {
+  font-size: 16px;
+}
+.home-points-label {
+  font-size: 13px;
+  color: var(--text);
+  margin: 0;
+}
+.home-points-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-left: auto;
+}
+
+.report-redo-upload {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.report-redo-btn {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.6);
+  padding: 8px 20px;
+  border-radius: 20px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.report-redo-btn:hover {
+  border-color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.9);
+}
+.report-redo-upload-wrap {
+  width: 100%;
+  margin-top: 8px;
+  position: relative;
+}
+.report-redo-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(0,0,0,0.5);
+  border: none;
+  color: white;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* ===== Tier2 Photo Upload (进阶报告独立生成) ===== */
+.tier2-photo-area {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0 24px;
+}
+.tier2-photo-area--compact {
+  padding: 4px 0 16px;
+  gap: 10px;
+}
+.tier2-photo-title {
+  font-size: 13px;
+  color: var(--text-h);
+  margin: 0;
+  text-align: center;
+}
+.tier2-photo-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.tier2-photo-selected {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.tier2-photo-preview {
+  width: 160px;
+  height: 160px;
+  object-fit: cover;
+  border-radius: 14px;
+}
+.tier2-photo-error {
+  font-size: 13px;
+  color: #e05656;
+  text-align: center;
+  margin: 0;
+}
+

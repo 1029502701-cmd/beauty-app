@@ -10,6 +10,7 @@ import InfluencerApply from './pages/InfluencerApply.jsx';
 import RequireAuth from './router/RequireAuth.jsx';
 import AdminRequireAuth from './router/AdminRequireAuth.jsx';
 import AdminLogin from './pages/AdminLogin.jsx';
+import SetPassword from './pages/SetPassword.jsx';
 import AdminDashboard from './pages/AdminDashboard.jsx';
 
 function Router() {
@@ -93,16 +94,14 @@ function Router() {
       const path = window.location.pathname;
       const effectivePath = path === '/' ? '' : path;
       // Unauthenticated: redirect to unified login (auth.meijian.top)
-      if (!token && callbackTokenRef.current === null && effectivePath !== '/login' && effectivePath !== '/admin/login' && !effectivePath.startsWith('/admin')) {
+      if (!token && callbackTokenRef.current === null && effectivePath !== '/login' && effectivePath !== '/set-password' && effectivePath !== '/admin/login' && !effectivePath.startsWith('/admin')) {
         console.log('[DIAG] A2 auth-guard REDIRECT to auth (no token, path=', effectivePath, ')');
         const target = encodeURIComponent(window.location.href || '/');
-              const useLocalLogin = new URL(window.location.href).searchParams.get('local') === '1';
-      if (!useLocalLogin) {
-window.location.href = 'https://auth.meijian.top?redirect=' + target;
-      }
-      }
-      // Authenticated: redirect root / to /home (skip while processing callback token)
-      else if (!tokenProcessRef.current && token && (effectivePath === '' || effectivePath === '/')) {
+        const useLocalLogin = new URL(window.location.href).searchParams.get('local') === '1';
+        if (!useLocalLogin) {
+          window.location.href = 'https://auth.meijian.top?redirect=' + target;
+        }
+      } else if (!tokenProcessRef.current && token && (effectivePath === '' || effectivePath === '/')) {
         console.log('[DIAG] A3 auth-guard redirect root to /home');
         setPage('/home');
         window.history.replaceState(null, '', '/home');
@@ -113,6 +112,8 @@ window.location.href = 'https://auth.meijian.top?redirect=' + target;
         setPage(effectivePath);
       }
       else if (!token && effectivePath === '/login') {
+        const useLocalLogin = new URL(window.location.href).searchParams.get('local') === '1';
+        if (!useLocalLogin) {
         // Use the originally-intended URL saved by RequireAuth BEFORE it navigated to /login
         console.log('[DIAG] A5 auth-guard at /login no token');
         const storedRedirect = sessionStorage.getItem('auth_redirect_from');
@@ -120,6 +121,7 @@ window.location.href = 'https://auth.meijian.top?redirect=' + target;
           ? encodeURIComponent(storedRedirect)
           : encodeURIComponent(window.location.origin + '/');
         window.location.href = 'https://auth.meijian.top?redirect=' + target;
+        }
       }
       else {
         console.log('[DIAG] A6 auth-guard NO ACTION tokenProcessRef=', tokenProcessRef.current);
@@ -130,6 +132,7 @@ window.location.href = 'https://auth.meijian.top?redirect=' + target;
   if (loading) return <div className="loading">加载中...</div>;
 
   if (page === '/login') return <Login onLogin={handleLogin} />;
+  if (page === '/set-password') return <SetPassword onSet={() => handleLogin('/home')} />;
   if (page === '/admin/login') return <AdminLogin />;
   if (page === '/admin/dashboard') return <AdminRequireAuth><AdminDashboard /></AdminRequireAuth>;
 

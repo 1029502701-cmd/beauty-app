@@ -38,7 +38,6 @@ export default function Login({ onLogin }) {
   const [pendingSessionId, setPendingSessionId] = useState(null);
   const [selectedGender, setSelectedGender] = useState('');
   const [selectedAgeRange, setSelectedAgeRange] = useState('');
-  const [showSetPassword, setShowSetPassword] = useState(false);
 
   useEffect(() => {
     fetch('/api/config/sms_login_enabled')
@@ -92,8 +91,8 @@ export default function Login({ onLogin }) {
       }
       if (!res.ok) throw new Error(data.error || '登录失败');
       if (data.hasPassword === false) {
-        setShowSetPassword(true);
         await login(data.sessionId);
+        window.location.href = "/set-password" + window.location.search;
         return;
       }
       const isLoggedIn = await checkProfile(data.sessionId);
@@ -124,8 +123,8 @@ export default function Login({ onLogin }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '登录失败');
       if (data.hasPassword === false) {
-        setShowSetPassword(true);
         await login(data.sessionId);
+        window.location.href = "/set-password" + window.location.search;
         return;
       }
       const isLoggedIn = await checkProfile(data.sessionId);

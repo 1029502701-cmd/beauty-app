@@ -1,6 +1,6 @@
-import { useState, useEffect, useContext } from 'react';
+﻿import { useState, useEffect, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext.jsx';
-import { BASE } from '../api.js';
+import { BASE, pointsApi } from '../api.js';
 
 const PRODUCTS = [
   { id: 'ai-beauty', label: 'AI 美妆', icon: '💄' },
@@ -37,6 +37,7 @@ export default function Home({ onLogout }) {
   const [contactList, setContactList] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState(null);
+  const [pointsBalance, setPointsBalance] = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -47,6 +48,17 @@ export default function Home({ onLogout }) {
       setContactList(parseContactList(contactRaw));
     });
   }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    pointsApi.getBalance().then((val) => {
+      if (!cancelled) setPointsBalance(val);
+    }).catch(() => {
+      if (!cancelled) setPointsBalance(null);
+    });
+    return () => { cancelled = true; };
+  }, [token]);
 
   const handleCopy = async (account) => {
     if (!account) return;
@@ -77,6 +89,13 @@ export default function Home({ onLogout }) {
 
   return (
     <div className="home-page">
+      {pointsBalance !== null && (
+        <div className="home-points-bar">
+          <span className="home-points-icon">💎</span>
+          <span className="home-points-label">当前积分</span>
+          <span className="home-points-value">{pointsBalance} 分</span>
+        </div>
+      )}
       <div className="home-product-grid">
         {PRODUCTS.map((p) => (
           <button

@@ -39,28 +39,74 @@ function AdOverlay({ duration, onComplete }) {
 
 function ProductCard({ product }) {
   if (!product) return null;
-  const link = product.itemUrl || product.curatedProduct?.itemUrl || '#';
+  const mainLink = product.itemUrl || '';
+  const curated = product.curatedProduct;
+  const curatedLink = curated?.itemUrl || '';
   return (
     <div className="t2-product-card">
-      {product.imageUrl && (
-        <img src={product.imageUrl} alt={product.name} className="t2-product-img" />
-      )}
-      <div className="t2-product-info">
-        <div className="t2-product-name">{product.name}</div>
-        {product.desc && <div className="t2-product-desc">{product.desc}</div>}
-        {product.price && <div className="t2-product-price">💰 {product.price}</div>}
-        {link !== '#' && (
-          <div className="t2-product-link-row">
-            <span className="t2-product-link-text">{link}</span>
-            <button className="t2-copy-btn" onClick={() => { navigator.clipboard.writeText(link); }} title="复制">📋</button>
-          </div>
+      <div className="t2-product-row">
+        {product.imageUrl && (
+          <img src={product.imageUrl} alt={product.name} className="t2-product-img" />
         )}
+        <div className="t2-product-info">
+          <div className="t2-product-name">{product.name}</div>
+          {product.reason && <div className="t2-product-reason">💡 {product.reason}</div>}
+          {product.desc && <div className="t2-product-desc">{product.desc}</div>}
+          {product.price && <div className="t2-product-price">💰 {product.price}</div>}
+          {mainLink && (
+            <div className="t2-product-link-row">
+              <span className="t2-product-link-text">{mainLink}</span>
+              <button className="t2-copy-btn" onClick={() => { navigator.clipboard.writeText(mainLink); }} title="复制">📋</button>
+            </div>
+          )}
+        </div>
       </div>
+      {curated && (
+        <div className="t2-product-row">
+          {curated.imageUrl && (
+            <img src={curated.imageUrl} alt={curated.name} className="t2-product-img" />
+          )}
+          <div className="t2-product-info">
+            <div className="t2-product-name"><span className="t2-product-curated-tag">备选</span>{curated.name}</div>
+            {curated.reason && <div className="t2-product-reason">💡 {curated.reason}</div>}
+            {curated.price && <div className="t2-product-price">💰 {curated.price}</div>}
+            {curatedLink && (
+              <div className="t2-product-link-row">
+                <span className="t2-product-link-text">{curatedLink}</span>
+                <button className="t2-copy-btn" onClick={() => { navigator.clipboard.writeText(curatedLink); }} title="复制">📋</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-export default function Tier2Result({ content, isMock, btnStyle, onUnlockImage }) {
+// 每个维度只展示「匹配度最高」的一件：优先带 curatedProduct（高匹配）的那件，
+// 其次首个已解析到淘宝链接的主推，其余不展示
+function pickTopProduct(products) {
+  if (!Array.isArray(products) || products.length === 0) return null;
+  for (const p of products) {
+    if (p && p.curatedProduct) {
+      const c = p.curatedProduct;
+      return {
+        name: c.name || p.name,
+        price: c.price,
+        imageUrl: c.imageUrl,
+        itemUrl: c.itemUrl,
+        shopTitle: c.shopTitle,
+        reason: c.reason,
+        desc: p.desc,
+      };
+    }
+  }
+  const main = products.find((p) => p && (p.itemUrl || p.imageUrl));
+  if (main) return { ...main, curatedProduct: null };
+  return { ...products[0], curatedProduct: null };
+}
+
+export default function Tier2Result({ content, isMock, btnStyle, onUnlockImage, facePhotoUrl }) {
   const [showAd, setShowAd] = useState(false);
   const [modalDim, setModalDim] = useState(null);
 
@@ -85,6 +131,11 @@ export default function Tier2Result({ content, isMock, btnStyle, onUnlockImage }
         {/* Hero */}
         <div className="t2-card t2-card--hero">
           <div className="t2-hero-top">
+            {facePhotoUrl ? (
+              <img className="t2-hero-portrait" src={facePhotoUrl} alt="你的照片" />
+            ) : (
+              <div className="t2-hero-portrait t2-hero-portrait--ph">📷</div>
+            )}
             <div className="t2-hero-right">
               <div className="t2-hero-badge">+ AI BEAUTY REPORT +</div>
               <h1 className="t2-hero-main-title">风格进阶报告</h1>
@@ -128,7 +179,7 @@ export default function Tier2Result({ content, isMock, btnStyle, onUnlockImage }
                       <button
                         className="t2-lightbulb-btn"
                         onClick={() => openProductModal(step.key)}
-                        title="查看商品推荐"
+                        title="查看高度匹配"
                       >💡</button>
                     )}
                   </div>
@@ -181,18 +232,6 @@ export default function Tier2Result({ content, isMock, btnStyle, onUnlockImage }
               <p className="t2-influencer-hint">正在为你匹配最合适的妆容达人，敬请期待…</p>
             </div>
 
-            {/* 4. Tier3 钩子模块 */}
-            <div className="t2-card t2-tier3-hook">
-              <div className="t2-tier3-hook-content">
-                <div className="t2-tier3-hook-icon">✨</div>
-                <p className="t2-tier3-hook-text">解锁专属报告，搭配更多场景</p>
-                <button className="t2-btn t2-btn-hook" style={btnStyle} onClick={() => {
-                  window.history.pushState({ page: 'tier3' }, '', '/tier3');
-                  window.dispatchEvent(new PopStateEvent('popstate'));
-                }}>解锁专属报告</button>
-              </div>
-            </div>
-
             {/* 5. 底部分享按钮 */}
             <div className="t2-footer">
               <button className="t2-share-btn" style={btnStyle} onClick={() => console.log('[Tier2Result] 分享按钮点击')}>
@@ -204,13 +243,16 @@ export default function Tier2Result({ content, isMock, btnStyle, onUnlockImage }
 
         {showAd && <AdOverlay duration={AD_DURATION_SEC} onComplete={handleAdFinish} />}
 
-        {/* 商品推荐弹窗 */}
+        {/* 高度匹配弹窗 */}
         {modalDim && (
           <div className="t2-modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setModalDim(null); }}>
             <div className="t2-modal-overlay-inner">
               <button className="t2-modal-close" onClick={() => setModalDim(null)}>✕</button>
-              <h3 className="t2-modal-title">商品推荐</h3>
-              {(productRecs[modalDim] || []).map((p, i) => <ProductCard key={i} product={p} />)}
+              <h3 className="t2-modal-title">高度匹配</h3>
+              {(() => {
+                const top = pickTopProduct(productRecs[modalDim] || []);
+                return top ? <ProductCard product={top} /> : <p className="t2-modal-empty">暂无高度匹配商品</p>;
+              })()}
             </div>
           </div>
         )}
