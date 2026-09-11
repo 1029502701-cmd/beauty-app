@@ -1,26 +1,14 @@
 import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
-import { requireAuth, beijingDate } from "../../_utils";
+import { requireAuth } from "../../_utils";
 import type { Ctx } from "../../_utils";
 
 /**
  * 我的美妆档案 — 报告列表接口
  *
- * 过滤规则（满足任一即返回）：
- *   1. 常规：reports_tier3 中 expire_at > now（创建后 30 天内有效）
- *   2. 临时：reports_tier2 中 unlock_method IN ('ad','code','share') 且 created_at
- *            落在今天北京时间 00:00–24:00 内（当天分享解锁产生的报告）
- *
- * 排序：先按 tier 升序（tier2 先于 tier3），再按 created_at 降序
- *
- * 返回字段变化（对比原 stub）：
- *   - 新增 access_type: 'regular' | 'share_unlock'（前端用于区分来源）
- *   - 保留 daysLeft（仅 regular 类型有意义，share_unlock 设为 null）
- *
- * ⚠️ 与 scheduled-worker 的一致性说明：
- *   - scheduled-worker 使用 expire_at < now 清理过期 tier3 记录
- *   - 本接口使用 expire_at > now 作为常规过滤条件
- *   - 两边都基于「创建时写入的 expire_at」字段，30 天定义完全一致 ✅
- *   - tier2 无 expire_at，由本接口当日 created_at 过滤，无需 scheduled-worker 参与
+ * 固定档案模式：每个用户每个 tier 类型只有一条最新记录。
+ *   - tier1：reports_tier1 中 user_id 对应的最新一条
+ *   - tier2：reports_tier2 中 user_id 且 unlock_method IN ('ad','code','share') 的最新一条
+ *   - tier3：reports_tier3 中 user_id 对应的最新一条（仅返回未过期的，expire_at > now）
  */
 
 type ReportRow =
@@ -45,7 +33,7 @@ type ReportRow =
 
 export const GET: FrameworkCallbackOptions["GET"] = async (context) => {
   const { request, env } = context;
-  console.log("[mine] context keys=", Object.keys(context), "request=", typeof context.request); const user = await requireAuth(request, env);
+  const user = await requireAuth(request, env);
   if (!user) {
     return new Response(JSON.stringify({ error: "未登录" }), {
       status: 401,
@@ -54,39 +42,30 @@ export const GET: FrameworkCallbackOptions["GET"] = async (context) => {
   }
 
   const now = Math.floor(Date.now() / 1000);
-  const today = beijingDate(); // YYYY-MM-DD，北京时间
 
-  // ── Tier2：当天分享解锁产生的报告 ──────────────────────────────────────────
-  // SQL 层已限定 created_at >= 今日北京时间 00:00 (Unix 秒)
-  // 注：D1 不支持 TIMESTAMP WITH TIME ZONE 转换，故在 JS 侧用 beijingDate()
-  // 取当日日期，再反向算出对应 Unix 时间戳作为下界；上界用今天 24:00 即明天 00:00
-  const todayStartUnix = Math.floor(
-    new Date(today + "T00:00:00+08:00").getTime() / 1000
-  );
-  const todayEndUnix = todayStartUnix + 24 * 60 * 60;
-
+  // ── Tier2：直接查该 user_id 的最新一条 ─────────────────────────────────────
   const tier2Result = await env.DB.prepare(
     `SELECT id, content, scenario, created_at
      FROM reports_tier2
      WHERE user_id = ?
        AND unlock_method IN ('ad', 'code', 'share')
-       AND created_at >= ?
-       AND created_at < ?`
+     ORDER BY created_at DESC
+     LIMIT 1`
   )
-    .bind(user.userId, todayStartUnix, todayEndUnix)
+    .bind(user.userId)
     .all();
 
-  // ── Tier3：常规 30 天有效报告 ──────────────────────────────────────────────
-  // expire_at = created_at + 30天（写入时确定），与 scheduled-worker 清理条件一致
+  // ── Tier3：固定档案模式，仅返回未过期的报告 ──────────────────────────────────
   const tier3Result = await env.DB.prepare(
     `SELECT id, scenario, content, created_at, expire_at
      FROM reports_tier3
-     WHERE user_id = ? AND expire_at > ?
-     ORDER BY created_at DESC`
+     WHERE user_id = ?
+       AND expire_at > ?
+     ORDER BY created_at DESC
+     LIMIT 1`
   )
     .bind(user.userId, now)
     .all();
-
 
   // ── Tier1：查询用户最新的初识报告 ───────────────────────────────────────────
   const tier1Result = await env.DB.prepare(`
@@ -151,19 +130,3 @@ export const GET: FrameworkCallbackOptions["GET"] = async (context) => {
 export const onRequestGet = async (...args) => {
   return (GET as any)(...args);
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

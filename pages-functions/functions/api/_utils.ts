@@ -261,28 +261,93 @@ export function parseDeepseekJson(raw: string): Record<string, unknown> | null {
 
 import { findProductByKeyword, findCuratedProduct } from "./_taobao";
 
-// Enrich product recommendations with real Taobao data (image, price, link) + curated second product
+// 用 DeepSeek 为一批商品生成"针对当前用户"的个性化推荐理由（一次批量调用，降低时延）
+export async function generateProductReasons(
+  targets: Array<{ name: string; brand: string; price: string }>,
+  userFeatures: Record<string, unknown>,
+  env: Ctx["env"]
+): Promise<Record<string, string>> {
+  const apiKey = env.DEEPSEEK_API_KEY;
+  if (!apiKey || targets.length === 0) return {};
+  const itemsPayload = targets.map((t, i) => ({
+    index: i,
+    name: t.name,
+    brand: t.brand || "",
+    price: t.price ? "¥" + t.price : "",
+  }));
+  const prompt =
+    "你是资深美妆顾问，请为下列每件商品写一句【针对该用户】的个性化推荐理由。\n" +
+    "要求：\n" +
+    "- 每句 12-28 个中文字\n" +
+    "- 必须结合【用户特征】（肤质/脸型/风格等）与该商品本身的特点（色号/功效/质地/品牌等）\n" +
+    "- 口语、可信、不夸大，不编造用户没有的特征，不提价格\n" +
+    "- 直接给一句话，不要带“推荐理由：”前缀\n\n" +
+    "【用户特征】\n" + JSON.stringify(userFeatures) + "\n\n" +
+    "【商品列表】\n" + JSON.stringify(itemsPayload) + "\n\n" +
+    '只输出严格 JSON，格式为 {"<index>":"一句理由"}，index 为商品在列表中的下标。不要输出 markdown。';
+  try {
+    const resp = await fetch("https://api.deepseek.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: "deepseek-chat",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 900,
+        temperature: 0.4,
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!resp.ok) {
+      console.warn("[tier2/reasons] DeepSeek HTTP " + resp.status);
+      return {};
+    }
+    const data: any = await resp.json();
+    const raw = data?.choices?.[0]?.message?.content;
+    if (!raw) return {};
+    const parsed = parseDeepseekJson(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (e) {
+    console.warn("[tier2/reasons] error:", e);
+    return {};
+  }
+}
+
+// Enrich product recommendations with real Taobao data (image, price, link) + curated second product,
+// 并调用 DeepSeek 为每件商品生成"针对该用户"的个性化推荐理由（reason 字段）
 async function enrichProductRecs(
   report: Record<string, unknown>,
-  env: Ctx["env"]
+  env: Ctx["env"],
+  tier1Report?: Record<string, unknown>
 ): Promise<void> {
   const productRecs = (report.productRecs as Record<string, unknown[]>) ?? {};
   const dims = Object.keys(productRecs);
+  // 用户特征（用于生成个性化推荐理由）
+  const userFeatures: Record<string, unknown> = {};
+  if (tier1Report) {
+    const keys = ["faceShape", "skinType", "eyebrowShape", "eyeShape", "threeFiveRatio", "symmetry", "personaTags", "highlight"];
+    for (const k of keys) {
+      const v = tier1Report[k];
+      if (v !== undefined && v !== null && v !== "") userFeatures[k] = v;
+    }
+  }
+  // 第一遍：匹配真实商品（Taobao + curated），并收集需要生成理由的商品
+  const reasonTargets: Array<{ dim: string; idx: number; isCurated: boolean }> = [];
   for (const dim of dims) {
-    const items = productRecs[dim] as Array<{ name: string; desc: string }>;
+    const items = productRecs[dim] as Array<Record<string, unknown>>;
     if (!Array.isArray(items)) continue;
-    for (const item of items) {
+    for (let idx = 0; idx < items.length; idx++) {
+      const item = items[idx];
       if (!item || typeof item !== "object") continue;
-      const name = (item as Record<string, unknown>).name as string;
+      const name = item.name as string;
       if (!name || typeof name !== "string") continue;
       try {
         const product = await findProductByKeyword(name, env);
         if (product) {
-          (item as Record<string, unknown>).imageUrl = product.imageUrl;
-          (item as Record<string, unknown>).price = product.price;
-          (item as Record<string, unknown>).itemUrl = product.itemUrl;
-          (item as Record<string, unknown>).shopTitle = product.shopTitle;
-          (item as Record<string, unknown>).brandName = product.brandName;
+          item.imageUrl = product.imageUrl;
+          item.price = product.price;
+          item.itemUrl = product.itemUrl;
+          item.shopTitle = product.shopTitle;
+          item.brandName = product.brandName;
           console.log("[tier2/enrich] Found: " + name + " -> " + product.title.slice(0, 40));
         } else {
           console.log("[tier2/enrich] No match for: " + name);
@@ -290,17 +355,49 @@ async function enrichProductRecs(
         // Check for curated second product
         const curated = await findCuratedProduct(name, env);
         if (curated) {
-          (item as Record<string, unknown>).curatedProduct = {
+          item.curatedProduct = {
             name: curated.name,
             price: curated.price,
             imageUrl: curated.imageUrl,
             itemUrl: curated.itemUrl,
             shopTitle: curated.shopTitle,
+            reason: (curated as unknown as { reason?: string }).reason || undefined,
           };
           console.log("[tier2/enrich] Curated 2nd product: " + curated.name);
         }
+        reasonTargets.push({ dim, idx, isCurated: false });
+        if (item.curatedProduct) reasonTargets.push({ dim, idx, isCurated: true });
       } catch (e) {
         console.warn("[tier2/enrich] Error enriching " + name + ":", e);
+      }
+    }
+  }
+  // 第二遍：批量生成个性化推荐理由
+  if (reasonTargets.length > 0) {
+    const productsForPrompt = reasonTargets.map((t) => {
+      const item = (productRecs[t.dim] as Array<Record<string, unknown>>)[t.idx];
+      const cp = t.isCurated ? (item?.curatedProduct as Record<string, unknown> | undefined) : undefined;
+      if (t.isCurated && !cp) return null;
+      if (cp) return { name: String(cp.name || ""), brand: String(cp.shopTitle || ""), price: cp.price ? String(cp.price) : "" };
+      return { name: String(item?.name || ""), brand: String(item?.brandName || ""), price: item?.price ? String(item.price) : "" };
+    }).filter(Boolean) as Array<{ name: string; brand: string; price: string }>;
+    if (productsForPrompt.length > 0) {
+      const reasons = await generateProductReasons(productsForPrompt, userFeatures, env);
+      reasonTargets.forEach((t, pos) => {
+        const item = (productRecs[t.dim] as Array<Record<string, unknown>>)[t.idx];
+        if (!item) return;
+        const genReason = String(reasons[pos] || "").trim();
+        if (t.isCurated) {
+          const cp = item.curatedProduct as Record<string, unknown> | undefined;
+          if (cp) cp.reason = genReason || String(cp.reason || "");
+        } else if (genReason) {
+          item.reason = genReason;
+        }
+      });
+      // 主商品理由兜底：AI 未生成时用 desc
+      for (const t of reasonTargets.filter((x) => !x.isCurated)) {
+        const item = (productRecs[t.dim] as Array<Record<string, unknown>>)[t.idx];
+        if (item && !item.reason && item.desc) item.reason = String(item.desc);
       }
     }
   }
@@ -363,7 +460,8 @@ Important:
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({ model: "deepseek-chat", messages: [{ role: "user", content: prompt }], max_tokens: 8000, temperature: 0.3 }),
-        signal: AbortSignal.timeout(90000),
+        // 60s：后台任务整体需留在 waitUntil({ timeout: 120 }) 的平台上限内（主调用 60s + 补全 30s ≈ 90s）
+        signal: AbortSignal.timeout(60000),
       });
       if (!resp.ok) {
         const eb = await resp.text().catch(() => "");
@@ -374,7 +472,10 @@ Important:
       const raw = data?.choices?.[0]?.message?.content;
       if (!raw) return null;
       const report = parseDeepseekJson(raw);
-      if (report) { await enrichProductRecs(report, env); }
+      if (report) {
+        // 商品图检索（enrich）限时 30s：超时也保留主报告；与主调用 60s 合计约 90s，避免后台任务被平台回收
+        await Promise.race([enrichProductRecs(report, env, tier1Report), new Promise((resolve) => setTimeout(resolve, 30000))]);
+      }
       return report;
     } catch (e) {
       console.error(loggerPrefix + " DeepSeek exception:", e);
@@ -402,4 +503,45 @@ export function makeOptionsHandler(): Response {
       "Access-Control-Max-Age": "86400",
     },
   });
+}
+
+
+// 异步生成 tier2 报告（后台执行，不阻塞解锁/生成接口的响应）
+// 生成完成后更新 reports_tier2 对应记录；失败时标记 failed，避免卡在 pending
+export async function generateTier2RecordAsync(
+  tier1Report: Record<string, unknown>,
+  tier2Id: string,
+  env: Ctx["env"],
+  loggerPrefix: string = "[tier2/async]"
+): Promise<void> {
+  const setStatus = async (status: string, content?: string) => {
+    const now = Math.floor(Date.now() / 1000);
+    if (content) {
+      await env.DB.prepare(
+        `UPDATE reports_tier2 SET content = ?, generation_status = ?, updated_at = ? WHERE id = ?`
+      ).bind(content, status, now, tier2Id).run();
+    } else {
+      await env.DB.prepare(
+        `UPDATE reports_tier2 SET generation_status = ?, updated_at = ? WHERE id = ?`
+      ).bind(status, now, tier2Id).run();
+    }
+  };
+  try {
+    // 先标记 processing，让前端轮询可见中间状态
+    const t0 = Math.floor(Date.now() / 1000);
+    await env.DB.prepare(
+      `UPDATE reports_tier2 SET generation_status = 'processing', updated_at = ? WHERE id = ?`
+    ).bind(t0, tier2Id).run();
+    const tier2Content = await callDeepSeekTier2(tier1Report, env, loggerPrefix);
+    if (tier2Content) {
+      await setStatus("ready", JSON.stringify(tier2Content));
+      console.log(`${loggerPrefix} ready for ${tier2Id}`);
+    } else {
+      await setStatus("failed");
+      console.error(`${loggerPrefix} no content for ${tier2Id}`);
+    }
+  } catch (e) {
+    console.error(`${loggerPrefix} exception for ${tier2Id}:`, e);
+    try { await setStatus("failed"); } catch {}
+  }
 }

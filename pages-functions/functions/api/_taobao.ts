@@ -23,6 +23,8 @@ export interface CuratedProduct {
   shopTitle?: string;
   tags?: string[];
   keywords?: string[];
+  // 可选：人工配置的高度匹配理由（无 AI 生成理由时作为兜底展示）
+  reason?: string;
 }
 
 const CACHE_TTL = 24 * 60 * 60;

@@ -97,7 +97,8 @@ const detectedPlatform = platformLink ? detectPlatform(platformLink) : null;
   // 异步走 AI 分析流程（不阻塞响应）
   if (barePhotoKey) {
     const analysisPromise = runFaceAnalysis(influencerId, barePhotoKey, env);
-    waitUntil(analysisPromise);
+    // 显式延长到 120s（默认 waitUntil 仅 30s，AI 分析最长约 50s 会被平台提前回收）
+    waitUntil(analysisPromise, { timeout: 120 });
   } else {
     // 没有素颜照，直接写默认 face_profile
     await env.DB.prepare(

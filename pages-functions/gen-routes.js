@@ -1,4 +1,4 @@
-﻿// Generate _routes.json for Cloudflare Pages Functions
+// Generate _routes.json for Cloudflare Pages Functions
 const fs = require("fs");
 const path = require("path");
 
@@ -44,11 +44,3 @@ const output = {
 fs.mkdirSync(path.join(__dirname, "dist"), { recursive: true });
 fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
 console.log("Generated " + unique.length + " routes to " + outputPath);
-
-// Generate _redirects for SPA fallback
-const redirectsPath = path.join(__dirname, "dist", "_redirects");
-const redirects = [
-  "/*  /index.html 200"
-];
-fs.writeFileSync(redirectsPath, redirects.join("\n") + "\n");
-console.log("Generated _redirects for SPA fallback");

@@ -3,10 +3,26 @@ import { requireAuth, generateId , parseDeepseekJson } from "../../_utils";
 import type { Ctx } from "../../_utils";
 
 // POST /api/tier3/generate
-// 入参：tier1ReportId、questionnaireAnswers（4个维度选择结果）
-// 逻辑：检查可用 token → 查 tier1 报告 → 调用 DeepSeek 生成场景化建议 → 消耗 token → 写入 reports_tier3
+// 入参：tier1ReportId（可选）、questionnaireAnswers（4个维度选择结果）
+// 逻辑：检查可用 token → 查 tier1 报告 → 调用 DeepSeek 生成场景化建议 → 消耗 token → 纯新增写入 reports_tier3
+// 专属报告是用户真实消耗积分/付费/兑换码生成的产物，采用纯新增（append-only）模式：
+// 每次生成都是一条新记录，不删除旧记录；旧报告由 30 天 expire_at 机制自然过期清理，
+// 个人中心/档案页通过 "ORDER BY created_at DESC LIMIT 1" 展示当前最新一份。
 export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
+  try {
+    return await handleTier3Generate(context);
+  } catch (e) {
+    console.error("[tier3/generate] UNCAUGHT ERROR:", e);
+    return new Response(
+      JSON.stringify({ error: "服务器内部错误", retryable: true }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+};
+
+async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
   const { request, env } = context;
+  console.log("[tier3/generate] request received");
   const user = await requireAuth(request, env);
   if (!user) {
     return new Response(JSON.stringify({ error: "未登录" }), {
@@ -15,18 +31,23 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
     });
   }
 
-  const body = await request.json();
-  const { tier1ReportId, questionnaireAnswers } = body as {
-    tier1ReportId: string;
-    questionnaireAnswers: Record<string, string>;
-  };
-
-  if (!tier1ReportId) {
+  let tier1ReportId: string | undefined;
+  let questionnaireAnswers: Record<string, string> | undefined;
+  try {
+    const body = (await request.json()) as {
+      tier1ReportId?: string;
+      questionnaireAnswers?: Record<string, string>;
+    };
+    tier1ReportId = body.tier1ReportId;
+    questionnaireAnswers = body.questionnaireAnswers;
+  } catch {
     return new Response(
-      JSON.stringify({ error: "缺少 tier1ReportId" }),
+      JSON.stringify({ error: "请求体不是合法 JSON" }),
       { status: 400, headers: { "Content-Type": "application/json" } }
     );
   }
+
+  // tier1ReportId is now optional - standalone tier3 generation is supported
   if (!questionnaireAnswers || typeof questionnaireAnswers !== "object") {
     return new Response(
       JSON.stringify({ error: "缺少 questionnaireAnswers" }),
@@ -34,9 +55,9 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
     );
   }
 
-  // 1. 检查是否有可用 token
+  // 1. 检查是否有可用 token（预检；真正的消耗在步骤 4 的原子认领完成，先到先得）
   const tokenRow = await env.DB.prepare(
-    `SELECT id FROM tokens WHERE user_id = ? AND status = 'unused' LIMIT 1`
+    `SELECT id FROM tokens WHERE user_id = ? AND status = 'unused' ORDER BY created_at LIMIT 1`
   )
     .bind(user.userId)
     .first<{ id: string }>();
@@ -48,32 +69,29 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
     );
   }
 
-  // 2. 查 tier1 报告数据
-  const tier1Row = await env.DB.prepare(
-    `SELECT report_data FROM reports_tier1 WHERE id = ? AND user_id = ? LIMIT 1`
-  )
-    .bind(tier1ReportId, user.userId)
-    .first<any>();
-
-  if (!tier1Row) {
-    return new Response(
-      JSON.stringify({ error: "tier1 报告不存在或无权访问" }),
-      { status: 404, headers: { "Content-Type": "application/json" } }
-    );
-  }
-
-  let tier1Report: Record<string, unknown>;
-  try {
-    tier1Report = JSON.parse(tier1Row.report_data) as Record<string, unknown>;
-  } catch {
-    return new Response(
-      JSON.stringify({ error: "tier1 报告数据解析失败" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+  // 2. 查 tier1 报告数据（可选：无初识报告时使用空数据兜底）
+  let tier1Report: Record<string, unknown> = {};
+  if (tier1ReportId) {
+    const tier1Row = await env.DB.prepare(
+      `SELECT report_data FROM reports_tier1 WHERE id = ? AND user_id = ? LIMIT 1`
+    )
+      .bind(tier1ReportId, user.userId)
+      .first<any>();
+    if (tier1Row) {
+      try {
+        tier1Report = JSON.parse(tier1Row.report_data) as Record<string, unknown>;
+      } catch {
+        console.warn("[tier3/generate] tier1 report data parse failed, using empty report");
+      }
+    }
+  } else {
+    console.log("[tier3/generate] No tier1ReportId, generating with empty report data");
   }
 
   // 3. 调用 DeepSeek 生成场景化妆容建议
+  const dsStart = Date.now();
   const reportContent = await callDeepSeekTier3(tier1Report, questionnaireAnswers, env);
+  console.log(`[tier3/generate] deepseek done in ${Date.now() - dsStart}ms, ok=${!!reportContent}`);
 
   if (!reportContent) {
     return new Response(
@@ -82,15 +100,23 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
     );
   }
 
-  // 4. 消耗 token：标记为 used，写入 used_at
+  // 4. 原子认领 token：仅当它仍为 unused 时才置为 used（防止并发双击时同一个
+  //    token 被两个请求同时选中、一份钱生成两份报告；抢到的请求正常写报告，
+  //    抢不到的返回 403 no_token，不写报告）
   const now = Math.floor(Date.now() / 1000);
-  await env.DB.prepare(
-    `UPDATE tokens SET status = 'used', used_at = ? WHERE id = ?`
+  const claim = await env.DB.prepare(
+    `UPDATE tokens SET status = 'used', used_at = ? WHERE id = ? AND status = 'unused'`
   )
     .bind(now, tokenRow.id)
     .run();
+  if (!claim.meta?.changes) {
+    return new Response(
+      JSON.stringify({ error: "no_token", message: "token 刚被另一请求消耗，请重新生成" }),
+      { status: 403, headers: { "Content-Type": "application/json" } }
+    );
+  }
 
-  // 5. 写入 reports_tier3
+  // 5. 写入 reports_tier3（纯新增：不删除旧记录，旧报告由 30 天 expire_at 机制自然清理）
   const reportId = generateId();
   const expireAt = now + 30 * 24 * 60 * 60;
   const scenario = questionnaireAnswers.scenario ?? "日常通勤";
@@ -187,7 +213,9 @@ Guidelines:
         max_tokens: 1200,
         temperature: 0.6,
       }),
-      signal: AbortSignal.timeout(45000),
+      // 必须小于 Cloudflare Pages 的 30 秒 wall-clock 限制，否则整个函数会被
+      // Cloudflare 强杀并返回 502（业务 try/catch 抓不到）；改为 25 秒内优雅失败
+      signal: AbortSignal.timeout(25000),
     });
 
     if (!resp.ok) {

@@ -15,16 +15,19 @@ export const GET: FrameworkCallbackOptions["GET"] = async (context) => {
       headers: { "Content-Type": "application/json" },
     });
   }
-
   const today = beijingDate();
-  const todayStartUnix = Math.floor(new Date(today + "T00:00:00+08:00").getTime() / 1000);
-  const todayEndUnix = todayStartUnix + 24 * 60 * 60;
 
+  // 从计数器表取今日已用次数（与 tier1/analyze.ts 的写入逻辑保持一致）
+  const usageRow = await env.DB.prepare(
+    `SELECT used_count FROM tier1_daily_usage WHERE user_id = ? AND usage_date = ? LIMIT 1`
+  ).bind(user.userId, today).first<any>();
+  const usedCount = usageRow?.used_count ?? 0;
+
+  // 同时查最新的报告记录（不再按日期筛选，固定档案模式）
   const result = await env.DB.prepare(
-    `SELECT id, report_data, created_at FROM reports_tier1 WHERE user_id = ? AND created_at >= ? AND created_at < ? ORDER BY created_at DESC LIMIT 1`
-  )
-    .bind(user.userId, todayStartUnix, todayEndUnix)
-    .first<any>();
+    `SELECT id, report_data, created_at FROM reports_tier1 WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`
+  ).bind(user.userId).first<any>();
+
 
   if (!result) {
     return new Response(JSON.stringify({ report: null }), {

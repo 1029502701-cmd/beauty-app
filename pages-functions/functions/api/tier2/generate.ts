@@ -1,9 +1,13 @@
 import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
-import { requireAuth, parseDeepseekJson, callDeepSeekTier2 } from "../../_utils";
+import { requireAuth } from "../../_utils";
+import { initTier2Progress, mergeTier1FaceAnalysis } from "../_tier2_stages";
 import type { Ctx } from "../../_utils";
 
 // POST /api/tier2/generate
-// 异步模式：立即返回 processing，后台生成后更新为 ready
+// 关联初识报告的进阶报告生成：立即返回 processing，生成由分阶段引擎（_tier2_stages.ts）完成
+// —— /tier2/status?tier2Id=... 轮询每次推进一个阶段；scheduled-worker 每分钟兜底。
+// （平台单次请求总执行时长约 30s，旧的"请求内一次性 AI 生成 + waitUntil"方案会被平台回收，
+//  导致记录永远卡在 processing；分阶段后每阶段 ≤25s，可安全落在请求预算内。）
 export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
   const { request, env } = context;
   const user = await requireAuth(request, env);
@@ -46,81 +50,44 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
         headers: { "Content-Type": "application/json" },
       });
     } catch {
-      // content 损坏，继续异步生成
+      // content 损坏，重新生成
     }
   }
 
-  // 3. 没有 source_tier1_report_id，无法生成
+  // 3. 独立报告（不关联初识报告）不能从空数据生成：
+  // 让前端回到"上传照片"入口（/tier2/generate-standalone），避免无数据空生成
   if (!tier2Row.source_tier1_report_id) {
     return new Response(
-      JSON.stringify({ error: "缺少 source_tier1_report_id，无法生成报告" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
+      JSON.stringify({ error: "standalone_report", message: "该进阶报告需要上传照片后生成" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
     );
   }
 
-  // 4. 查 tier1 报告内容
+  // 4. 查 tier1 报告内容（面部特征数据源）
+  let tier1Report: Record<string, unknown> = {};
   const tier1Row = await env.DB.prepare(
     `SELECT report_data FROM reports_tier1 WHERE id = ? LIMIT 1`
   )
     .bind(tier2Row.source_tier1_report_id)
     .first<any>();
-
-  if (!tier1Row) {
-    return new Response(
-      JSON.stringify({ error: "源 tier1 报告不存在" }),
-      { status: 404, headers: { "Content-Type": "application/json" } }
-    );
+  if (tier1Row) {
+    try {
+      tier1Report = JSON.parse(tier1Row.report_data) as Record<string, unknown>;
+    } catch {
+      console.warn("[tier2/generate] tier1 report data parse failed, using empty report");
+    }
   }
 
-  let tier1Report: Record<string, unknown>;
-  try {
-    tier1Report = JSON.parse(tier1Row.report_data) as Record<string, unknown>;
-  } catch {
-    return new Response(
-      JSON.stringify({ error: "tier1 报告数据解析失败" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
-  }
-
-  // 5. 立即标记为 processing
-  const now = Math.floor(Date.now() / 1000);
-  await env.DB.prepare(
-    `UPDATE reports_tier2 SET generation_status = 'processing', updated_at = ? WHERE id = ?`
-  ).bind(now, tier2Row.id).run();
-
-  // 6. 立即返回，后台异步生成（不阻塞响应）
-  context.waitUntil(generateTier2Async(tier1Report, tier2Row.id, env));
+  // 5. 置为 processing 并写初始进度（从 step1 开始；面部特征取自初识报告，缺失字段用默认值兜底）
+  await initTier2Progress(env, tier2Row.id, {
+    standalone: false,
+    faceAnalysis: mergeTier1FaceAnalysis(tier1Report),
+  });
 
   return new Response(JSON.stringify({ id: tier2Row.id, generationStatus: "processing" }), {
     headers: { "Content-Type": "application/json" },
   });
 };
-
-async function generateTier2Async(tier1Report: Record<string, unknown>, tier2Id: string, env: Ctx["env"]): Promise<void> {
-  try {
-    const tier2Content = await callDeepSeekTier2(tier1Report, env);
-    if (tier2Content) {
-      const now = Math.floor(Date.now() / 1000);
-      await env.DB.prepare(
-        `UPDATE reports_tier2 SET content = ?, generation_status = 'ready', updated_at = ? WHERE id = ?`
-      ).bind(JSON.stringify(tier2Content), now, tier2Id).run();
-      console.log(`[tier2/generate] Successfully generated for ${tier2Id}`);
-    } else {
-      const now = Math.floor(Date.now() / 1000);
-      await env.DB.prepare(
-        `UPDATE reports_tier2 SET generation_status = 'failed', updated_at = ? WHERE id = ?`
-      ).bind(now, tier2Id).run();
-      console.error(`[tier2/generate] Failed to generate for ${tier2Id}`);
-    }
-  } catch (e) {
-    console.error(`[tier2/generate] Async exception for ${tier2Id}:`, e);
-    const now = Math.floor(Date.now() / 1000);
-    await env.DB.prepare(
-      `UPDATE reports_tier2 SET generation_status = 'failed', updated_at = ? WHERE id = ?`
-    ).bind(now, tier2Id).run();
-  }
-}
-
 
 // wrangler v4 compatibility: alias for route discovery
 export const onRequestPost = async (...args) => {

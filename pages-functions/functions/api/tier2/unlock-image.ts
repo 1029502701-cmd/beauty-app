@@ -35,11 +35,18 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
   const today = beijingDate();
 
   // 1. 验证归属用户
-  const tier2Row = await env.DB.prepare(
-    `SELECT id, user_id, share_token FROM reports_tier2 WHERE id = ? LIMIT 1`
-  )
-    .bind(reportId)
-    .first<any>();
+  let tier2Row: any;
+  try {
+    tier2Row = await env.DB.prepare(
+      `SELECT id, user_id, share_token, face_photo_key FROM reports_tier2 WHERE id = ? LIMIT 1`
+    ).bind(reportId).first<any>();
+  } catch (e) {
+    // face_photo_key 列在 0022 迁移中新增；未迁移环境回退
+    console.warn("[tier2/unlock-image] face_photo_key missing, legacy select:", e);
+    tier2Row = await env.DB.prepare(
+      `SELECT id, user_id, share_token FROM reports_tier2 WHERE id = ? LIMIT 1`
+    ).bind(reportId).first<any>();
+  }
 
   if (!tier2Row || tier2Row.user_id !== user.userId) {
     return new Response(JSON.stringify({ error: "报告不存在或无权访问" }), {
@@ -48,29 +55,6 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
     });
   }
 
-  // 2. 检查分享是否已转化
-  if (!tier2Row.share_token) {
-    return new Response(
-      JSON.stringify({ unlocked: false, reason: "referral_not_confirmed" }),
-      { headers: { "Content-Type": "application/json" } }
-    );
-  }
-
-  const referralRow = await env.DB.prepare(
-    `SELECT converted_user_id FROM share_referrals WHERE token = ? LIMIT 1`
-  )
-    .bind(tier2Row.share_token)
-    .first<any>();
-
-  if (!referralRow || !referralRow.converted_user_id) {
-    return new Response(
-      JSON.stringify({ unlocked: false, reason: "referral_not_confirmed" }),
-      { headers: { "Content-Type": "application/json" } }
-    );
-  }
-
-  // 3. 检查今日使用次数（每日限1次）
-  const MAX_DAILY_IMAGES = 1;
   const usageRow = await env.DB.prepare(
     `SELECT used_count FROM tier2_daily_usage WHERE user_id = ? AND usage_date = ? LIMIT 1`
   )
@@ -84,34 +68,49 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
     );
   }
 
-  // 4. 从 tier1 report_data.facePhotoKey 读取 R2 图片并转为 base64 data URL
-  let imageDataUrl: string | null = null;
-  const tier1Row = await env.DB.prepare(
-    `SELECT report_data FROM reports_tier1 WHERE id = (SELECT source_tier1_report_id FROM reports_tier2 WHERE id = ?) LIMIT 1`
-  )
-    .bind(reportId)
-    .first<any>();
+  // 3. 检查 tier2 报告是否已生成完成
+  if (tier2Row.generation_status !== 'ready') {
+    return new Response(
+      JSON.stringify({ unlocked: false, reason: "tier2_not_ready" }),
+      { headers: { "Content-Type": "application/json" } }
+    );
+  }
 
-  if (tier1Row?.report_data) {
+  // 4. 读取 R2 照片并转为 base64 data URL：
+  // 独立报告优先用报告自己的 face_photo_key；否则回退到 tier1 report_data.facePhotoKey
+  let facePhotoKey: string | null = tier2Row?.face_photo_key || null;
+  if (!facePhotoKey) {
+    const tier1Row = await env.DB.prepare(
+      `SELECT report_data FROM reports_tier1 WHERE id = (SELECT source_tier1_report_id FROM reports_tier2 WHERE id = ?) LIMIT 1`
+    )
+      .bind(reportId)
+      .first<any>();
+    if (tier1Row?.report_data) {
+      try {
+        const tier1Report = JSON.parse(tier1Row.report_data) as Record<string, unknown>;
+        facePhotoKey = tier1Report.facePhotoKey as string | null;
+      } catch (e) {
+        console.error("[tier2/unlock-image] Failed to parse tier1 report_data:", e);
+      }
+    }
+  }
+  let imageDataUrl: string | null = null;
+  if (facePhotoKey) {
     try {
-      const tier1Report = JSON.parse(tier1Row.report_data) as Record<string, unknown>;
-      const facePhotoKey = tier1Report.facePhotoKey as string | null;
-      if (facePhotoKey) {
-        const obj = await env.R2_TEMP.get(facePhotoKey);
-        if (obj && "body" in obj) {
-          const arrayBuffer = await obj.arrayBuffer();
-          const uint8 = new Uint8Array(arrayBuffer);
-          let binary = "";
-          for (let i = 0; i < uint8.byteLength; i++) {
-            binary += String.fromCharCode(uint8[i]);
-          }
-          const base64 = btoa(binary);
-          const contentType = obj.httpMetadata?.contentType || "image/jpeg";
-          imageDataUrl = `data:${contentType};base64,${base64}`;
-          // 兜底：确保图片尺寸满足 DashScope 要求（512-4096px）
-          imageDataUrl = await resizeBase64IfNeeded(imageDataUrl, 2048);
-          console.log(`[tier2/unlock-image] Read R2 image: ${facePhotoKey}, size: ${arrayBuffer.byteLength} bytes`);
+      const obj = await env.R2_TEMP.get(facePhotoKey);
+      if (obj && "body" in obj) {
+        const arrayBuffer = await obj.arrayBuffer();
+        const uint8 = new Uint8Array(arrayBuffer);
+        let binary = "";
+        for (let i = 0; i < uint8.byteLength; i++) {
+          binary += String.fromCharCode(uint8[i]);
         }
+        const base64 = btoa(binary);
+        const contentType = obj.httpMetadata?.contentType || "image/jpeg";
+        imageDataUrl = `data:${contentType};base64,${base64}`;
+        // 兜底：确保图片尺寸满足 DashScope 要求（512-4096px）
+        imageDataUrl = await resizeBase64IfNeeded(imageDataUrl, 2048);
+        console.log(`[tier2/unlock-image] Read R2 image: ${facePhotoKey}, size: ${arrayBuffer.byteLength} bytes`);
       }
     } catch (e) {
       console.error("[tier2/unlock-image] Failed to read R2 image:", e);
