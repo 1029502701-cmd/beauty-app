@@ -1,24 +1,25 @@
 {
   "name": "beauty-app",
-  "private": true,
+  "scripts": {
+    "d1:migrate:local": "npx wrangler d1 migrations apply DB --local --project-name=beauty-api-pages",
+    "build": "npm run build --workspace=app",
+    "deploy:pages": "powershell -ExecutionPolicy Bypass -File scripts/deploy-pages.ps1",
+    "dev:pages": "npm run dev --workspace=pages-functions",
+    "d1:migrate:prod": "npx wrangler d1 migrations apply DB --project-name=beauty-api-pages",
+    "dev:web": "npm run dev --workspace=app",
+    "deploy:scheduled": "npx wrangler deploy --cwd scheduled-worker",
+    "dev:scheduled": "npm run dev --workspace=scheduled-worker"
+  },
   "version": "0.1.0",
   "workspaces": [
     "app",
     "pages-functions",
     "scheduled-worker"
   ],
-  "scripts": {
-    "dev:web": "npm run dev --workspace=app",
-    "dev:pages": "npm run dev --workspace=pages-functions",
-    "dev:scheduled": "npm run dev --workspace=scheduled-worker",
-    "build": "npm run build --workspace=app",
-    "deploy:pages": "npm run build --workspace=app && cd pages-functions && npx wrangler pages functions build functions --outdir dist && node gen-routes.js && mkdir -p dist/assets && cp -r ../../app/dist/assets/* dist/assets/ 2>/dev/null; cp ../../app/dist/index.html dist/index.html 2>/dev/null; cp ../../app/dist/favicon.svg dist/ 2>/dev/null; cp ../../app/dist/icons.svg dist/ 2>/dev/null; cp ../../app/dist/_curated-products.json dist/ 2>/dev/null; cp ../../app/dist/mock-pay.html dist/ 2>/dev/null; npx wrangler pages deploy ./dist --project-name=beauty-api-pages --branch=master --skip-caching --commit-dirty=true",
-    "deploy:scheduled": "npx wrangler deploy --cwd scheduled-worker",
-    "d1:migrate:local": "npx wrangler d1 migrations apply --local --project-name=beauty-api-pages",
-    "d1:migrate:prod": "npx wrangler d1 migrations apply --project-name=beauty-api-pages"
-  },
+  "private": true,
   "devDependencies": {
     "playwright": "^1.62.1",
+    "@playwright/test": "^1.63.0",
     "sqlite3": "^6.0.1"
   }
 }
