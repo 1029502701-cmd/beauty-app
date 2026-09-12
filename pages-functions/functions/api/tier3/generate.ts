@@ -1,5 +1,6 @@
 import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
 import { requireAuth, generateId , parseDeepseekJson } from "../../_utils";
+import { findProductByKeyword } from "../_taobao";
 import type { Ctx } from "../../_utils";
 
 // POST /api/tier3/generate
@@ -8,6 +9,8 @@ import type { Ctx } from "../../_utils";
 // 专属报告是用户真实消耗积分/付费/兑换码生成的产物，采用纯新增（append-only）模式：
 // 每次生成都是一条新记录，不删除旧记录；旧报告由 30 天 expire_at 机制自然过期清理，
 // 个人中心/档案页通过 "ORDER BY created_at DESC LIMIT 1" 展示当前最新一份。
+const AUTH_CENTER_URL = "https://auth.meijian.top";
+
 export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
   try {
     return await handleTier3Generate(context);
@@ -30,6 +33,8 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
       headers: { "Content-Type": "application/json" },
     });
   }
+
+  const authToken = (request.headers.get("Authorization") || "").replace(/^Bearer /, "");
 
   let tier1ReportId: string | undefined;
   let questionnaireAnswers: Record<string, string> | undefined;
@@ -111,6 +116,36 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
     );
   }
 
+  // 3.5 为 productRecs 补全淘宝商品数据（图片、链接、价格），限时 15s
+  // 保证整个请求仍在 Cloudflare 30s wall-clock 限制内
+  try {
+    const recs = reportContent.productRecs;
+    if (recs && typeof recs === "object" && !Array.isArray(recs)) {
+      const t0 = Date.now();
+      for (const dim of Object.keys(recs)) {
+        const items = recs[dim];
+        if (!Array.isArray(items)) continue;
+        for (const item of items) {
+          if (!item || typeof item !== "object" || !item.name) continue;
+          if (item.itemUrl) continue; // already enriched
+          if (Date.now() - t0 > 15000) break;
+          try {
+            const product = await findProductByKeyword(String(item.name), env);
+            if (product) {
+              item.imageUrl = product.imageUrl;
+              item.price = product.price;
+              item.itemUrl = product.itemUrl;
+              item.shopTitle = product.shopTitle;
+            }
+          } catch { /* 单品失败不阻断 */ }
+        }
+      }
+      console.log("[tier3/generate] productRecs enriched, elapsed=" + (Date.now() - t0) + "ms");
+    }
+  } catch (e) {
+    console.warn("[tier3/generate] productRecs enrichment failed, continuing:", e);
+  }
+
   // 4. 原子认领 token（仅 token 路径）：仅当它仍为 unused 时才置为 used（防止并发双击时
   //    同一个 token 被两个请求同时选中、一份钱生成两份报告；抢到的请求正常写报告，
   //    抢不到的返回 403 no_token，不写报告）。积分路径不消耗 token，tokenRow 为 null。
@@ -131,13 +166,27 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
 
   // 5. 写入 reports_tier3（纯新增：不删除旧记录，旧报告由 30 天 expire_at 机制自然清理）
   //    token_id 可空：积分解锁的报告不关联 token；token 解锁的报告关联已消耗的 token。
+  // 3档报告生成成功 → 调中枢 grant-tier3（去重/金额由中枢定，中枢负责幂等）
+  let tier3Points: { granted: boolean; balance: number } | null = null;
+  if (authToken) {
+    try {
+      const grantRes = await fetch(AUTH_CENTER_URL + "/api/points/grant-tier3", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + authToken },
+      });
+      const grantData: any = await grantRes.json().catch(() => ({}));
+      tier3Points = { granted: !!grantData.granted, balance: typeof grantData.balance === "number" ? grantData.balance : 0 };
+    } catch (e) {
+      console.warn("[tier3/generate] grant-tier3 call failed, skipping points:", e);
+    }
+  }
   const reportId = generateId();
   const expireAt = now + 30 * 24 * 60 * 60;
   const scenario = questionnaireAnswers.scenario ?? "日常通勤";
 
   await env.DB.prepare(
-    `INSERT INTO reports_tier3 (id, user_id, token_id, scenario, quiz_answers, content, created_at, expire_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO reports_tier3 (id, user_id, token_id, scenario, quiz_answers, content, created_at, expire_at, face_photo_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
       reportId,
@@ -147,12 +196,13 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
       JSON.stringify(questionnaireAnswers),
       JSON.stringify(reportContent),
       now,
-      expireAt
+      expireAt,
+      facePhotoKey || null
     )
     .run();
 
   return new Response(
-    JSON.stringify({ id: reportId, content: reportContent, expireAt, facePhotoKey }),
+    JSON.stringify({ id: reportId, content: reportContent, expireAt, facePhotoKey, points: tier3Points }),
     { headers: { "Content-Type": "application/json" } }
   );
 };

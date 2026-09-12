@@ -3,7 +3,7 @@ import { AuthContext } from '../context/AuthContext.jsx';
 import RequireAuth from '../router/RequireAuth.jsx';
 import Tier2Result from './Tier2Result.jsx';
 import { getCompliment } from './complimentMap.js';
-import { BASE, pointsApi } from '../api.js';
+import { BASE, pointsApi, UNLOCK_REPORT_AMOUNT } from '../api.js';
 import { checkAndResize } from '../utils/imageResize.js';
 function dataUrlToBlob(dataUrl) {
   const commaIdx = dataUrl.indexOf(',');
@@ -14,6 +14,7 @@ function dataUrlToBlob(dataUrl) {
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return new Blob([bytes], { type: mime });
 }
+import { composeShareCard, shareImage, fetchInviteInfo } from '../utils/makeShareCard.js';
 import { removeStorageItem, STORAGE_KEYS } from '../utils/storage.js';
 import CapturePhotoUpload from './CapturePhotoUpload.jsx';
 import Tier2PhotoUpload from './Tier2PhotoUpload.jsx';
@@ -93,56 +94,217 @@ function AdOverlay({ duration, onComplete }) {
   );
 }
 
-function Tier3Report({ content, onRefresh }) {
-  const { overallAdvice, stepByStep, productRecs, tips, timeWarning, styleNote } = content;
+const T3_PROD_GROUP_LABELS = { base: '底妆', eyes: '眼妆', lips: '唇妆', cheeks: '腮红' };
+const T3_SECTION_STEPS = [
+  { key: 'advice',  label: '整体建议',     icon: '✦' },
+  { key: 'style',   label: '风格与场景融合', icon: '🎯' },
+  { key: 'steps',   label: '步骤指南',     icon: '📋' },
+  { key: 'products',label: '高匹配用品',     icon: '💄' },
+  { key: 'tips',    label: '贴心提示',     icon: '⚠' },
+  { key: 'time',    label: '时间提醒',     icon: '⏱' },
+  { key: 'influencer',label: '化妆达人匹配', icon: '👩' },
+];
+
+
+// ── 化妆达人匹配卡片 ──────────────────────────────────────────────────────────
+// 调用 /api/influencers/match 获取与用户面部特征最匹配的化妆达人（Top2）
+function InfluencerMatchCard() {
+  const [matches, setMatches] = useState(null);
+  const [error, setError] = useState(null);
+  const { token } = useContext(AuthContext);
+
+  useEffect(() => {
+    if (!token) { setError("未登录"); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(BASE + "/influencers/match", {
+          headers: { Authorization: "Bearer " + token },
+        });
+        if (cancelled) return;
+        const data = await res.json();
+        if (!res.ok) { setError(data.message || "加载失败"); return; }
+        setMatches(data.matches || []);
+      } catch (e) {
+        if (!cancelled) setError("网络异常，请重试");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [token]);
+
+  if (error) {
+    return (
+      <div className="t3-card t3-card--influencer">
+        <h2 className="t3-card-title">👩 化妆达人匹配</h2>
+        <p className="t3-influencer-empty">{error}</p>
+      </div>
+    );
+  }
+
+  if (matches === null) {
+    return (
+      <div className="t3-card t3-card--influencer">
+        <h2 className="t3-card-title">👩 化妆达人匹配</h2>
+        <p className="t3-influencer-loading">正在为你匹配最合适的化妆达人…</p>
+      </div>
+    );
+  }
+
+  if (matches.length === 0) {
+    return (
+      <div className="t3-card t3-card--influencer">
+        <h2 className="t3-card-title">👩 化妆达人匹配</h2>
+        <p className="t3-influencer-empty">暂无匹配的化妆达人，更多达人入驻中，敬请期待</p>
+      </div>
+    );
+  }
+
   return (
-    <>
-      {overallAdvice && (
-        <div className="report-section">
-          <h2 className="report-section-title">整体建议</h2>
-          <div className="report-tier3-advice-card"><p className="report-tier3-advice-text">{overallAdvice}</p></div>
+    <div className="t3-card t3-card--influencer">
+      <h2 className="t3-card-title">👩 化妆达人匹配</h2>
+      <div className="t3-influencer-list">
+        {matches.map((inf) => (
+          <div key={inf.id} className="t3-influencer-card">
+            {inf.makeupPhotoUrl ? (
+              <img src={inf.makeupPhotoUrl} alt={inf.nickname} className="t3-influencer-avatar" />
+            ) : (
+              <div className="t3-influencer-avatar t3-influencer-avatar--placeholder">
+                {(inf.nickname || "达").charAt(0)}
+              </div>
+            )}
+            <div className="t3-influencer-info">
+              <span className="t3-influencer-name">
+                {inf.nickname}
+                {inf.score != null && (
+                  <span className="t3-influencer-score">匹配度 {Math.round(inf.score * 100)}%</span>
+                )}
+              </span>
+              {inf.bio && <span className="t3-influencer-bio">{inf.bio}</span>}
+              {inf.platform && <span className="t3-influencer-platform">{inf.platform}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+function Tier3Report({ content, onRefresh, onShare, shareLoading, shareDone, photoUrl }) {
+  const { overallAdvice, stepByStep, productRecs, tips, timeWarning, styleNote } = content;
+
+  const hasProductRecs = productRecs && typeof productRecs === 'object' &&
+    Object.values(productRecs).some((v) => Array.isArray(v) && v.length > 0);
+  const hasSteps = Array.isArray(stepByStep) && stepByStep.length > 0;
+  const hasTips = Array.isArray(tips) && tips.length > 0;
+
+  const activeSections = T3_SECTION_STEPS.filter((s) => {
+    switch (s.key) {
+      case 'advice':   return !!overallAdvice;
+      case 'style':    return !!styleNote;
+      case 'steps':    return hasSteps;
+      case 'products': return hasProductRecs;
+      case 'tips':     return hasTips;
+      case 'time':     return !!timeWarning;
+      case 'influencer': return true; // 始终展示
+      default: return false;
+    }
+  });
+
+  const doneRatio = activeSections.length / T3_SECTION_STEPS.length;
+  const styleTag = styleNote ? (styleNote.match(/^[^，,。；;]+/) || [styleNote])[0] : '专属定制';
+
+  return (
+    <div className="t3-page">
+      {/* 报告头部（进阶报告 hero 同款视觉） */}
+      <div className="t3-hero">
+        <div className="t3-hero-badge">✦ YOUR MAKEUP PLAN ✦</div>
+        <h1 className="t3-hero-title">专属美妆方案</h1>
+        <div className="t3-hero-subtitle">
+          <span className="t3-hero-line">—</span>
+          <span>{styleTag || '为你定制'} · {content._scenario || '今日妆容'}</span>
+          <span className="t3-hero-line">—</span>
         </div>
-      )}
+        {photoUrl && (
+          <div className="t3-hero-photo-wrap">
+            <img className="t3-hero-photo" src={photoUrl} alt="报告照片" />
+            <span className="t3-hero-photo-label">本次报告使用照片</span>
+          </div>
+        )}
+        {overallAdvice && (
+          <div className="t3-hero-advice">
+            <div className="t3-hero-advice-label">✦ 方案解读</div>
+            <p className="t3-hero-advice-text">{overallAdvice}</p>
+          </div>
+        )}
+        <div className="t3-progress">
+          <div className="t3-progress-bg">
+            <div className="t3-progress-fill" style={{ width: doneRatio * 100 + '%' }} />
+          </div>
+          <span className="t3-progress-label">{activeSections.length} 个模块已生成</span>
+        </div>
+      </div>
+
+      {/* 风格与场景融合 */}
       {styleNote && (
-        <div className="report-section">
-          <h2 className="report-section-title">风格与场景融合</h2>
-          <div className="report-tier3-style-card"><p className="report-tier3-style-text">{styleNote}</p></div>
+        <div className="t3-card t3-card--style">
+          <h2 className="t3-card-title">🎯 风格与场景融合</h2>
+          <p className="t3-card-text">{styleNote}</p>
         </div>
       )}
-      {Array.isArray(stepByStep) && stepByStep.length > 0 && (
-        <div className="report-section">
-          <h2 className="report-section-title">步骤指南</h2>
-          <div className="report-tier3-steps">
+
+      {/* 步骤指南 */}
+      {hasSteps && (
+        <div className="t3-card">
+          <h2 className="t3-card-title">📋 步骤指南</h2>
+          <div className="t3-steps">
             {stepByStep.map((s, i) => (
-              <div key={i} className="report-tier3-step">
-                <div className="report-tier3-step-header">
-                  <span className="report-tier3-step-num">{s.step || i + 1}</span>
-                  <span className="report-tier3-step-title">{s.title}</span>
-                  <span className="report-tier3-step-meta">{s.timeEstimate}{s.difficultyHint ? ' · ' + s.difficultyHint : ''}</span>
+              <div key={i} className="t3-step">
+                <span className="t3-step-num">{String(s.step || i + 1).padStart(2, '0')}</span>
+                <div className="t3-step-body">
+                  <div className="t3-step-head">
+                    <span className="t3-step-name">{s.title}</span>
+                    <span className="t3-step-meta">
+                      {s.timeEstimate ? <span className="t3-step-time">⏱ {s.timeEstimate}</span> : null}
+                      {s.difficultyHint ? <span className="t3-step-diff">{s.difficultyHint}</span> : null}
+                    </span>
+                  </div>
+                  <p className="t3-step-desc">{s.description}</p>
                 </div>
-                <p className="report-tier3-step-desc">{s.description}</p>
               </div>
             ))}
           </div>
         </div>
       )}
-      {productRecs && typeof productRecs === 'object' && (
-        <div className="report-section">
-          <h2 className="report-section-title">推荐产品</h2>
-          <div className="report-tier3-products">
+
+      {/* 推荐产品 */}
+      {hasProductRecs && (
+        <div className="t3-card">
+          <h2 className="t3-card-title">💄 高匹配用品</h2>
+          <div className="t3-products">
             {Object.entries(productRecs).map(([dim, recs]) => {
               if (!Array.isArray(recs) || recs.length === 0) return null;
-              const labels = { base: '底妆', eyes: '眼妆', lips: '唇妆', cheeks: '腮红' };
               return (
-                <div key={dim} className="report-tier3-prod-group">
-                  <span className="report-tier3-prod-group-label">{labels[dim] || dim}</span>
-                  <div className="report-tier3-prod-list">
-                    {recs.map((rec, j) => (
-                      <div key={j} className="report-tier3-prod-card">
-                        <span className="report-tier3-prod-name">{rec.name || rec}</span>
-                        <span className="report-tier3-prod-reason">{rec.reason || ''}</span>
-                      </div>
-                    ))}
+                <div key={dim} className="t3-prod-group">
+                  <span className="t3-prod-group-label">{T3_PROD_GROUP_LABELS[dim] || dim}</span>
+                  <div className="t3-prod-list">
+                    {recs.map((rec, j) => {
+                      const name = typeof rec === 'string' ? rec : rec.name;
+                      const reason = typeof rec === 'string' ? '' : rec.reason;
+                      return (
+                        <div key={j} className="t3-prod-item">
+                          {rec.imageUrl && <img src={rec.imageUrl} alt={name} className="t3-prod-img" />}
+                          <div className="t3-prod-info">
+                            <span className="t3-prod-name">{name}</span>
+                            {reason ? <span className="t3-prod-reason">💡 {reason}</span> : null}
+                            {rec.price != null && rec.price > 0 && <span className="t3-prod-price">💰 {rec.price} 元</span>}
+                          </div>
+                          {rec.itemUrl && (
+                            <a className="t3-prod-link" href={rec.itemUrl} target="_blank" rel="noopener noreferrer">淘宝查看 ↗</a>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               );
@@ -150,26 +312,36 @@ function Tier3Report({ content, onRefresh }) {
           </div>
         </div>
       )}
-      {Array.isArray(tips) && tips.length > 0 && (
-        <div className="report-section">
-          <h2 className="report-section-title">贴心提示</h2>
-          <ul className="report-tier3-tips">
-            {tips.map((t, i) => <li key={i} className="report-tier3-tip">{t}</li>)}
+
+      {/* 贴心提示 */}
+      {hasTips && (
+        <div className="t3-card t3-card--tips">
+          <h2 className="t3-card-title">⚠ 贴心提示</h2>
+          <ul className="t3-tips">
+            {tips.map((t, i) => <li key={i} className="t3-tip">{t}</li>)}
           </ul>
         </div>
       )}
+
+      {/* 化妆达人匹配 */}
+      <InfluencerMatchCard />
+
+      {/* 时间提醒 */}
       {timeWarning && (
-        <div className="report-section">
-          <div className="report-tier3-time-warning">
-            <span className="report-tier3-time-icon">⏱</span>
-            <p className="report-tier3-time-text">{timeWarning}</p>
-          </div>
+        <div className="t3-time-warning">
+          <span className="t3-time-warning-icon">⏱</span>
+          <p className="t3-time-warning-text">{timeWarning}</p>
         </div>
       )}
-      <div className="report-tier3-refresh">
-        <button className="report-tier3-refresh-btn" onClick={onRefresh}>使用另一个 token 重新生成</button>
+
+      {/* 底部：重新生成 + 分享占位（对齐进阶报告 footer） */}
+      <div className="t3-footer">
+        <button className="t3-refresh-btn" onClick={onRefresh}>使用另一个 token 重新生成</button>
+        <button className="t3-share-btn" onClick={onShare} disabled={shareLoading}>
+          {shareDone ? '✓ 已生成分享图' : '分享报告'}
+        </button>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -237,8 +409,12 @@ export default function ReportPage() {
   useEffect(() => { tier3AnswersRef.current = tier3Answers; }, [tier3Answers]);
   const [tier3Generating, setTier3Generating] = useState(false);
   const [tier3Content, setTier3Content] = useState(null);
-  // 个人中心展示：用户已生成的专属（tier3）报告简要信息（妆容风格 + 到期时间）
+  // 个人中心：最新一份专属（tier3）报告简要信息（专属页 scenario 回退等）
   const [myTier3, setMyTier3] = useState(null);
+  const [myTier3Archives, setMyTier3Archives] = useState([]); // 个人中心：全部专属报告档案（每份独立，不互相覆盖）
+  const [archiveOpenId, setArchiveOpenId] = useState(null); // 档案详情：当前展开的报告 id
+  const [archiveDetail, setArchiveDetail] = useState(null); // 档案详情内容（按报告 id 懒加载）
+  const [archiveDetailLoading, setArchiveDetailLoading] = useState(false);
   const [tier3Error, setTier3Error] = useState(null);
   const [tier3RedeemCode, setTier3RedeemCode] = useState('');
   const [tier3Redeeming, setTier3Redeeming] = useState(false);
@@ -248,11 +424,13 @@ export default function ReportPage() {
   // 专属报告（tier3）照片上传：问卷完成 → 上传照片 → 开始生成
   const [tier3Photo, setTier3Photo] = useState(null);
   const [tier3PhotoKey, setTier3PhotoKey] = useState(null);
+  const [tier3ContentPhotoUrl, setTier3ContentPhotoUrl] = useState(null); // 本次刚生成报告对应的照片预览 URL
   const [tier3PhotoUploading, setTier3PhotoUploading] = useState(false);
   const [tier3PhotoError, setTier3PhotoError] = useState(null);
   const tier3PhotoInputRef = useRef(null);
   const tier3PhotoKeyRef = useRef(null);
-  useEffect(() => { tier3PhotoKeyRef.current = tier3PhotoKey; }, [tier3PhotoKey]);
+const tier3PhotoKeyLiveRef = useRef(null);
+  useEffect(() => { tier3PhotoKeyRef.current = tier3PhotoKey; tier3PhotoKeyLiveRef.current = tier3PhotoKey; }, [tier3PhotoKey]);
   const [tier3LoadError, setTier3LoadError] = useState(null);
   const [tier3PreviewText, setTier3PreviewText] = useState('');
   const [tier3PreviewLoading, setTier3PreviewLoading] = useState(true);
@@ -447,31 +625,37 @@ export default function ReportPage() {
     if (activeTab !== '专属') return;
     let cancelled = false;
     async function load() {
+      // 各请求独立兜底：任何接口失败都不置 loadError（否则整页白屏），
+      // 全部失败时置一个 tokenStatus（hasToken:false），让界面落到"购买/兑换/积分"解锁引导页
       try {
-        const [statusRes, optionsRes] = await Promise.all([
-          fetch(BASE + '/tier3/token-status', { headers: { Authorization: 'Bearer ' + token } }),
-          fetch(BASE + '/tier3/questionnaire-options'),
-        ]);
-        if (!cancelled) {
-          if (statusRes.ok) {
-            const statusData = await statusRes.json();
-            setTier3TokenStatus(statusData);
-          }
-          if (optionsRes.ok) {
-            const optionsData = await optionsRes.json();
-            setTier3QuestionnaireOptions(optionsData.options || {});
-          }
-          const previewRes = await fetch(BASE + '/config/tier3_preview_text');
-          if (previewRes.ok) {
-            const previewData = await previewRes.json();
-            setTier3PreviewText(previewData.value || '专属报告为你提供个性化深度分析，涵盖整体建议、步骤指南和推荐产品。');
-            setTier3PreviewLoading(false);
-          } else {
-            setTier3PreviewText('专属报告为你提供个性化深度分析，涵盖整体建议、步骤指南和推荐产品。');
-            setTier3PreviewLoading(false);
-          }
+        const statusRes = await fetch(BASE + '/tier3/token-status', { headers: { Authorization: 'Bearer ' + token } }).catch(() => null);
+        if (statusRes && statusRes.ok && !cancelled) {
+          const statusData = await statusRes.json();
+          setTier3TokenStatus(statusData);
         }
-      } catch { if (!cancelled) { setTier3LoadError('加载失败'); setTier3PreviewLoading(false); } }
+      } catch { /* 忽略 */ }
+      if (cancelled) return;
+      if (!tier3TokenStatus) {
+        // 兜底：token-status 失败时视为无 token，进入解锁引导页（购买/积分/兑换码仍可用）
+        setTier3TokenStatus({ hasToken: false, count: 0 });
+      }
+      try {
+        const optionsRes = await fetch(BASE + '/tier3/questionnaire-options').catch(() => null);
+        if (optionsRes && optionsRes.ok && !cancelled) {
+          const optionsData = await optionsRes.json();
+          setTier3QuestionnaireOptions(optionsData.options || {});
+        }
+      } catch { /* 忽略 */ }
+      try {
+        const previewRes = await fetch(BASE + '/config/tier3_preview_text').catch(() => null);
+        if (previewRes && previewRes.ok && !cancelled) {
+          const previewData = await previewRes.json();
+          setTier3PreviewText(previewData.value || '专属报告为你提供个性化深度分析，涵盖整体建议、步骤指南和推荐产品。');
+        } else if (!cancelled) {
+          setTier3PreviewText('专属报告为你提供个性化深度分析，涵盖整体建议、步骤指南和推荐产品。');
+        }
+      } catch { /* 忽略 */ }
+      if (!cancelled) setTier3PreviewLoading(false);
     }
     void load();
     return () => { cancelled = true; };
@@ -490,7 +674,7 @@ export default function ReportPage() {
     return () => { cancelled = true; };
   }, [activeTab, token]);
 
-  // 个人中心：加载用户已生成的专属（tier3）报告简要信息
+  // 个人中心：加载用户的全部专属（tier3）报告档案（纯新增：每生成一份都是一条独立档案，不互相覆盖）
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -499,15 +683,35 @@ export default function ReportPage() {
         const res = await fetch(BASE + '/tier3/content', { headers: { Authorization: 'Bearer ' + token } });
         if (!res.ok) return;
         const data = await res.json();
-        if (!cancelled && data.found) {
-          setMyTier3({ style: data.style || null, scenario: data.scenario || null, expireAt: data.expireAt || null });
+        if (!cancelled && Array.isArray(data.reports)) {
+          setMyTier3Archives(data.reports);
+          const latest = data.reports[0] || null;
+          setMyTier3(latest ? { style: latest.style, scenario: latest.scenario, expireAt: latest.expireAt, id: latest.id, photoUrl: latest.photoUrl } : null);
         }
       } catch {}
     })();
     return () => { cancelled = true; };
   }, [token, showArchive]);
+
+  // 个人中心档案：点击某份专属报告 → 拉取该报告的完整内容（详情查看）
+  useEffect(() => {
+    if (!archiveOpenId || !token) return;
+    let cancelled = false;
+    setArchiveDetailLoading(true);
+    setArchiveDetail(null);
+    (async () => {
+      try {
+        const res = await fetch(BASE + '/tier3/report-id?id=' + encodeURIComponent(archiveOpenId), { headers: { Authorization: 'Bearer ' + token } });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setArchiveDetail(data);
+      } catch {}
+      if (!cancelled) setArchiveDetailLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [archiveOpenId, token]);
   const handleTier3Submit = useCallback(async () => {
-    if (!reportId || tier3Generating || !token) return;
+    if (tier3Generating || !token) return;
     const dims = ['makeupStyle', 'scenario', 'skillLevel', 'timeCost'];
     const missing = dims.filter((d) => !tier3Answers[d]);
     if (missing.length > 0) {
@@ -535,6 +739,7 @@ export default function ReportPage() {
         }
       } else {
         setTier3Content(data.content);
+        setTier3ContentPhotoUrl(tier3PhotoKeyLiveRef.current ? "/api/r2-proxy?key=" + encodeURIComponent(tier3PhotoKeyLiveRef.current) + "&bucket=temp" : null);
         setTier3TokenStatus({ hasToken: false, count: 0 });
       }
     } catch (e) {
@@ -543,36 +748,33 @@ export default function ReportPage() {
       setTier3Generating(false);
     }
   }, [reportId, tier3Generating, token]);
-  // 消耗积分解锁：先调 auth-center /api/points/consume 扣 6 积分（reason=redeem_tier3），
-  // 成功后设置 pointsGranted 并进入问卷；真正生成走 /api/tier3/generate，
-  // 后端"积分抵扣成功"与"token 可用"是并列的两条权限来源。
+  // 消耗积分解锁：动作成功那一刻调本端 /api/points/consume（代理 auth-center，价格/去重服务端定），
+  // 成功后设置 pointsGranted 并进入问卷；真正生成走 /api/tier3/generate。
   const tier3PointsGrantedRef = useRef(false);
   const handleTier3UnlockByPoints = useCallback(async () => {
-    if (tier3PointsConsume || !token || tier3PointsBalance < 6) return;
+    if (tier3PointsConsume || !token || tier3PointsBalance == null || tier3PointsBalance < UNLOCK_REPORT_AMOUNT) return;
     setTier3PointsConsume(true);
     setTier3Error(null);
     try {
-      const t = localStorage.getItem('session_token');
-      const res = await fetch('https://auth.meijian.top/api/points/consume', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t },
-        body: JSON.stringify({ reason: 'redeem_tier3', amount: 6 }),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setTier3PointsBalance(Math.max(0, (d.balance ?? tier3PointsBalance) ?? 0));
-        setTier3Error('积分不足或扣减失败，请重试');
-      } else {
+      // 价格由服务端写死（UNLOCK_REPORT_AMOUNT），前端只传 reportId；once 去重保证一人一次。
+      // reportId 为空时用稳定占位 tier3_default，保证同一用户对"默认"报告也一人一次。
+      const result = await pointsApi.unlockReport(reportId || 'tier3_default');
+      if (result.consumed || (result.reason && /已解锁|已扣过/.test(result.reason))) {
+        // 扣成功 或 之前已扣过（一人一次去重）→ 都视为具备资格，进入问卷
         tier3PointsGrantedRef.current = true;
-        setTier3PointsBalance(d.balance ?? Math.max(0, tier3PointsBalance - 6));
+        if (result.balance != null) setTier3PointsBalance(result.balance);
         setTier3ShowQuestionnaire(true);
+        setTier3Error(null);
+      } else {
+        setTier3PointsBalance(result.balance != null ? result.balance : tier3PointsBalance);
+        setTier3Error(result.reason || '积分不足或扣减失败，请重试');
       }
     } catch {
       setTier3Error('网络异常，请重试');
     } finally {
       setTier3PointsConsume(false);
     }
-  }, [tier3PointsConsume, token, tier3PointsBalance]);
+  }, [tier3PointsConsume, token, tier3PointsBalance, reportId]);
 
   // 专属报告照片选择（拍照/相册/文件）
   const handleTier3PhotoPickCamera = async () => {
@@ -625,7 +827,9 @@ export default function ReportPage() {
         setTier3PhotoError(json?.error || '照片上传失败，请重试');
         return;
       }
-      setTier3PhotoKey(json.tier3FacePhotoKey || null);
+      const newKey = json.tier3FacePhotoKey || null;
+      tier3PhotoKeyLiveRef.current = newKey;
+      setTier3PhotoKey(newKey);
       setTier3Photo(null);
       // 照片上传成功 → 开始分析生成
       void handleTier3DoSubmit();
@@ -640,7 +844,7 @@ export default function ReportPage() {
     setTier3CurrentQuestionIndex((prev) => Math.max(0, prev - 1));
   }, []);
   const handleTier3DoSubmit = useCallback(async () => {
-    if (!reportId || tier3Generating || !token) {
+    if (tier3Generating || !token) {
         return;
     }
     const dims = ['makeupStyle', 'scenario', 'skillLevel', 'timeCost'];
@@ -650,7 +854,8 @@ export default function ReportPage() {
       setTier3Error('请选择所有选项');
         return;
     }
-    if (!tier3PhotoKeyRef.current) {
+    const livePhotoKey = tier3PhotoKeyLiveRef.current ?? tier3PhotoKeyRef.current;
+    if (!livePhotoKey) {
       setTier3Error('请先上传照片');
       return;
     }
@@ -670,7 +875,7 @@ export default function ReportPage() {
           tier1ReportId: reportId,
           questionnaireAnswers: tier3AnswersRef.current,
           fromPoints: usePoints || undefined,
-          facePhotoKey: tier3PhotoKeyRef.current || undefined,
+          facePhotoKey: livePhotoKey || undefined,
         }),
       });
         const data = await res.json();
@@ -685,6 +890,7 @@ export default function ReportPage() {
         }
       } else {
             setTier3Content(data.content);
+        setTier3ContentPhotoUrl(tier3PhotoKeyLiveRef.current ? "/api/r2-proxy?key=" + encodeURIComponent(tier3PhotoKeyLiveRef.current) + "&bucket=temp" : null);
         setTier3TokenStatus({ hasToken: false, count: 0 });
         tier3PointsGrantedRef.current = false;
       }
@@ -783,6 +989,56 @@ export default function ReportPage() {
       } catch {}
     }
   }, [token]);
+
+  // 专属报告分享：复用用户上传的美妆分享模板，把二维码换成当前报告链接
+  const handleShareTier3 = useCallback(async () => {
+    if (shareLoading) return;
+    try {
+      const [invite] = await Promise.all([
+        fetchInviteInfo(token),
+      ]);
+      const inviteCode = invite?.inviteCode || '';
+      // 优先用报告链接，其次用注册邀请链接
+      const shareUrl = reportId
+        ? BASE + '/report?id=' + encodeURIComponent(reportId)
+        : (inviteCode ? 'https://auth.meijian.top/register?invite=' + encodeURIComponent(inviteCode) : window.location.href);
+      // composeShareCard 内部用固定邀请注册链接；这里需要专属报告链接，手动合成
+      const QRCode = await import('qrcode');
+      const qr = document.createElement('canvas');
+      await QRCode.toCanvas(qr, shareUrl, { width: 200, margin: 1, color: { dark: '#2d2d2d', light: '#ffffff' } });
+      const loadTpl = (u) => new Promise((res, rej) => {
+        const im = new Image();
+        im.onload = () => res(im);
+        im.onerror = () => rej(new Error('tpl load fail ' + u));
+        im.crossOrigin = 'anonymous';
+        im.src = u;
+      });
+      const candUrls = ['/share-card-template.jpg'];
+      if (window.location.protocol.startsWith('http') && window.location.origin !== 'https://ccfu.ccwu.cc') {
+        candUrls.push('https://ccfu.ccwu.cc/share-card-template.jpg');
+      }
+      let tpl; let lastErr;
+      for (const u of candUrls) {
+        try { tpl = await loadTpl(u); break; } catch (e) { lastErr = e; }
+      }
+      if (!tpl) throw lastErr || new Error('模板图加载失败');
+      const c = document.createElement('canvas');
+      c.width = tpl.naturalWidth; c.height = tpl.naturalHeight;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(tpl, 0, 0, c.width, c.height);
+      const QR_SIZE = 180, QR_X = 516 - QR_SIZE / 2, QR_Y = 1340 - QR_SIZE / 2;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(QR_X - 8, QR_Y - 8, QR_SIZE + 16, QR_SIZE + 16);
+      ctx.drawImage(qr, QR_X, QR_Y, QR_SIZE, QR_SIZE);
+      const blob = await new Promise((res, rej) => c.toBlob((b) => b ? res(b) : rej(new Error('合成失败')), 'image/png', 1.0));
+      setShareDone(true);
+      await shareImage(blob);
+    } catch (e) {
+      console.error('[ReportPage] tier3 分享异常:', e);
+    } finally {
+      setShareLoading(false);
+    }
+  }, [shareLoading, reportId, token]);
 
   const handleShareReport = useCallback(async () => {
     if (shareLoading || !reportId) return;
@@ -1141,111 +1397,130 @@ export default function ReportPage() {
             {!tier3TokenStatus ? (
               <div className="report-loading">加载中...</div>
             ) : tier3Content ? (
-              <Tier3Report content={tier3Content} onRefresh={handleTier3Refresh} />
-            ) : !tier3TokenStatus.hasToken ? (
-              <div className="report-unlock-prompt">
-                <div className="report-exclusive-icon">🔐</div>
-                <p className="report-exclusive-text">专属深度分析报告</p>
-                {tier3PreviewLoading ? (
-                  <p className="report-exclusive-hint">加载中...</p>
-                ) : tier3PreviewText ? (
-                  <div className="report-preview-section">
-                    <p className="report-preview-label">专属报告包含</p>
-                    <div className="report-preview-content" dangerouslySetInnerHTML={{ __html: tier3PreviewText }} />
-                  </div>
-                ) : null}
-                <div className="report-redeem-section">
-                  <p className="report-redeem-hint">已有兑换码？在此输入：</p>
-                  <input
-                    className="report-redeem-input-inline"
-                    type="text"
-                    placeholder="请输入10位兑换码"
-                    value={tier3RedeemCode}
-                    onChange={(e) => setTier3RedeemCode(e.target.value.toUpperCase())}
-                    maxLength={10}
-                  />
-                  {tier3Error && <p className="report-redeem-error">{tier3Error}</p>}
-                  {tier3PointsBalance !== null && (
-                    <p className="report-redeem-hint report-points-hint">积分余额：{tier3PointsBalance}（专属报告 6 积分）</p>
-                  )}
+              <Tier3Report
+              photoUrl={tier3ContentPhotoUrl || (myTier3 && myTier3.photoUrl)}
+              content={{ ...tier3Content, _scenario: tier3Answers.scenario || (myTier3 && myTier3.scenario) || '今日妆容' }}
+              onRefresh={handleTier3Refresh}
+              onShare={handleShareTier3}
+              shareLoading={shareLoading}
+              shareDone={shareDone}
+            />
+            ) : (!tier3TokenStatus.hasToken && !tier3PointsGrantedRef.current) ? (
+              <div className="t3-unlock">
+                <div className="t3-unlock-hero">
+                  <div className="t3-unlock-badge">✦ PREMIUM REPORT ✦</div>
+                  <h1 className="t3-unlock-title">专属深度美妆方案</h1>
+                  <p className="t3-unlock-sub">AI 根据你的脸型、肤质与偏好，为你定制可落地的妆容步骤与产品清单</p>
+                  {tier3PreviewLoading ? (
+                    <p className="t3-unlock-hint">报告说明加载中...</p>
+                  ) : tier3PreviewText ? (
+                    <div className="t3-unlock-preview" dangerouslySetInnerHTML={{ __html: tier3PreviewText }} />
+                  ) : null}
                 </div>
-                <div className="report-btn-row">
-                  <button className="report-buy-btn" onClick={handleTier3Buy}>购买</button>
-                  <button className="report-unlock-btn-alt" onClick={handleTier3Redeem} disabled={tier3Redeeming || !tier3RedeemCode.trim()}>
-                    {tier3Redeeming ? '兑换中...' : '解锁'}
+                <div className="t3-unlock-tiles">
+                  <button
+                    className="t3-unlock-tile t3-unlock-tile--primary"
+                    onClick={handleTier3Buy}
+                  >
+                    <span className="t3-unlock-tile-icon">🛒</span>
+                    <span className="t3-unlock-tile-label">购买专属报告</span>
                   </button>
                   <button
-                    className="report-unlock-btn-alt"
+                    className="t3-unlock-tile"
                     onClick={handleTier3UnlockByPoints}
-                    disabled={tier3PointsConsume || tier3PointsBalance === null || tier3PointsBalance < 6}
+                    disabled={tier3PointsConsume || tier3PointsBalance === null || tier3PointsBalance < UNLOCK_REPORT_AMOUNT}
                   >
-                    {tier3PointsConsume ? '扣减中...' : tier3PointsBalance === null ? '加载中...' : tier3PointsBalance < 6 ? '积分不足' : '6 积分解锁'}
+                    <span className="t3-unlock-tile-icon">⭐</span>
+                    <span className="t3-unlock-tile-label">
+                      {tier3PointsConsume ? '扣减中…' : tier3PointsBalance === null ? '积分加载中…' : tier3PointsBalance < UNLOCK_REPORT_AMOUNT ? '积分不足' : UNLOCK_REPORT_AMOUNT + ' 积分解锁'}
+                    </span>
+                    {tier3PointsBalance !== null && <span className="t3-unlock-tile-sub">当前余额 {tier3PointsBalance} 积分</span>}
                   </button>
+                </div>
+                <div className="t3-unlock-redeem">
+                  <p className="t3-unlock-redeem-label">已有兑换码</p>
+                  <div className="t3-unlock-redeem-row">
+                    <input
+                      className="t3-unlock-redeem-input"
+                      type="text"
+                      placeholder="输入10位兑换码"
+                      value={tier3RedeemCode}
+                      onChange={(e) => setTier3RedeemCode(e.target.value.toUpperCase())}
+                      maxLength={10}
+                    />
+                    <button
+                      className="t3-unlock-redeem-btn"
+                      onClick={handleTier3Redeem}
+                      disabled={tier3Redeeming || !tier3RedeemCode.trim()}
+                    >
+                      {tier3Redeeming ? '兑换中...' : '解锁'}
+                    </button>
+                  </div>
+                  {tier3Error && <p className="report-q-error">{tier3Error}</p>}
                 </div>
               </div>
             ) : !tier3ShowQuestionnaire ? (
-              <div className="report-unlock-prompt">
-                <div className="report-exclusive-icon">✨</div>
-                <p className="report-exclusive-text">你已拥有专属报告资格</p>
-                {tier3PreviewLoading ? (
-                  <p className="report-exclusive-hint">加载中...</p>
-                ) : tier3PreviewText ? (
-                  <div className="report-preview-section">
-                    <p className="report-preview-label">专属报告包含</p>
-                    <div className="report-preview-content" dangerouslySetInnerHTML={{ __html: tier3PreviewText }} />
-                  </div>
-                ) : null}
-                <div className="report-btn-row">
-                  <button className="report-unlock-btn" onClick={() => setTier3ShowQuestionnaire(true)}>使用 token 解锁</button>
+              <div className="t3-unlock t3-unlock--ready">
+                <div className="t3-unlock-hero">
+                  <div className="t3-unlock-badge">✦ READY ✦</div>
+                  <h1 className="t3-unlock-title">你已拥有专属报告资格</h1>
+                  <p className="t3-unlock-sub">完成 4 道偏好问卷 + 上传一张照片，AI 即刻为你生成专属方案</p>
                 </div>
+                <button className="t3-cta-btn" onClick={() => setTier3ShowQuestionnaire(true)}>开始定制 →</button>
               </div>
             ) : !tier3Content && !tier3Generating ? (
-              <div className="report-quiz">
-                <div className="report-quiz-progress-wrap">
-                  <div className="report-quiz-progress-bar-bg">
-                    <div
-                      className="report-quiz-progress-bar-fill"
-                      style={{ width: ((tier3CurrentQuestionIndex) / TIER3_QUESTIONS.length) * 100 + '%' }}
-                    />
-                  </div>
-                  <span className="report-quiz-progress-text">{tier3CurrentQuestionIndex + 1} / {TIER3_QUESTIONS.length}</span>
+              <div className="t3-quiz">
+                <div className="t3-quiz-header">
+                  <span className="t3-quiz-header-title">✨ 4 步定制你的专属方案</span>
+                  <span className="t3-quiz-header-count">{tier3CurrentQuestionIndex + 1} / {TIER3_QUESTIONS.length}</span>
+                </div>
+                <div className="t3-quiz-progress">
+                  <div
+                    className="t3-quiz-progress-fill"
+                    style={{ width: ((tier3CurrentQuestionIndex) / TIER3_QUESTIONS.length) * 100 + '%' }}
+                  />
                 </div>
                 {tier3CurrentQuestionIndex > 0 && (
-                  <button className="report-quiz-back-btn" onClick={handleTier3Back}>‹ 上一题</button>
+                  <button className="t3-quiz-back" onClick={handleTier3Back}>‹ 上一题</button>
                 )}
-                {(() => {
+                {tier3TokenStatus ? (() => {
                   // 问卷全部完成 → 照片上传步骤
                   const allAnswered = ['makeupStyle', 'scenario', 'skillLevel', 'timeCost'].every((d) => tier3Answers[d]);
-                  if (allAnswered && !tier3Content && !tier3Generating && !tier3PhotoKey) {
+                  // 照片已上传（tier3PhotoKey 有值）但生成失败/未完成：展示"重新分析"按钮，避免卡在 Q4 无操作
+                  if (allAnswered && !tier3Content && !tier3Generating) {
                     return (
-                      <div className="report-quiz-photo-step">
-                        <p className="report-quiz-question-title">上传照片开始分析</p>
-                        <p className="report-unlock-hint">请上传一张清晰的正面照片，将为你生成专属分析</p>
+                      <div className="t3-photo-step">
+                        <div className="t3-photo-step-head">
+                          <span className="t3-photo-step-emoji">📷</span>
+                          <p className="t3-photo-step-title">{tier3PhotoKey ? '重新生成专属方案' : '上传照片开始分析'}</p>
+                        </div>
+                        <p className="t3-photo-step-hint">{tier3PhotoKey ? '照片已上传，可重新生成；若刚才失败请点下方按钮重试。' : '请上传一张清晰的正面照片，将为你生成专属分析'}</p>
+                        {tier3PhotoKey && !tier3Photo && (
+                          <div className="t3-photo-actions">
+                            <button className="t3-cta-btn" onClick={handleTier3DoSubmit} disabled={tier3Generating}>
+                              {tier3Generating ? '生成中…' : '🔁 重新生成'}
+                            </button>
+                          </div>
+                        )}
                         {tier3Photo ? (
-                          <div className="tier2-photo-selected" style={{margin: "10px auto"}}>
-                            <img className="tier2-photo-preview" src={tier3Photo} alt="照片预览" />
-                            <div className="tier2-photo-actions">
-                              <button className="report-unlock-btn" onClick={handleTier3PhotoSubmit} disabled={tier3PhotoUploading}>
+                          <div className="t3-photo-selected">
+                            <img className="t3-photo-preview" src={tier3Photo} alt="照片预览" />
+                            <div className="t3-photo-actions">
+                              <button className="t3-cta-btn" onClick={handleTier3PhotoSubmit} disabled={tier3PhotoUploading}>
                                 {tier3PhotoUploading ? '上传中…' : '开始分析'}
                               </button>
-                              <button className="report-redo-btn" onClick={() => { setTier3Photo(null); setTier3PhotoError(null); }}>重新选择</button>
+                              <button className="t3-photo-resel" onClick={() => { setTier3Photo(null); setTier3PhotoError(null); }}>重新选择</button>
                             </div>
                           </div>
                         ) : (
-                          <div className="tier2-photo-actions">
+                          <div className="t3-photo-actions">
                             {typeof navigator !== 'undefined' && navigator.userAgent?.match(/(iPhone|iPad|iPod|Android)/i) ? (
                               <>
-                                <button className="capture-action-btn capture-camera-btn" onClick={handleTier3PhotoPickCamera}>
-                                  <span className="capture-icon">📷</span> 拍照
-                                </button>
-                                <button className="capture-action-btn capture-gallery-btn" onClick={handleTier3PhotoPickGallery}>
-                                  <span className="capture-icon">🖼</span> 从相册选择
-                                </button>
+                                <button className="t3-photo-pick" onClick={handleTier3PhotoPickCamera}>📷 拍照</button>
+                                <button className="t3-photo-pick" onClick={handleTier3PhotoPickGallery}>🖼 从相册选择</button>
                               </>
                             ) : (
-                              <button className="capture-action-btn capture-web-btn" onClick={() => tier3PhotoInputRef.current?.click()}>
-                                <span className="capture-icon">📁</span> 选择照片
-                              </button>
+                              <button className="t3-photo-pick" onClick={() => tier3PhotoInputRef.current?.click()}>📁 选择照片</button>
                             )}
                             <input ref={tier3PhotoInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleTier3PhotoInputChange} />
                           </div>
@@ -1259,16 +1534,17 @@ export default function ReportPage() {
                   const options = (tier3QuestionnaireOptions && tier3QuestionnaireOptions[q.key]) || TIER3_FALLBACK_OPTIONS[q.key] || [];
                   if (!options.length) return null;
                   return (
-                    <div className="report-quiz-question-card" key={tier3CurrentQuestionIndex}>
-                      <p className="report-quiz-question-title">{q.title}</p>
-                      <div className="report-quiz-options">
+                    <div className="t3-q-card" key={tier3CurrentQuestionIndex}>
+                      <p className="t3-q-emoji">{['🎨', '🎬', '👤', '⏱️'][tier3CurrentQuestionIndex] || '✦'}</p>
+                      <p className="t3-q-title">{q.title}</p>
+                      <div className="t3-q-options">
                         {options.map((opt) => (
                           <button
                             key={opt}
                             className={[
-                              'report-quiz-option',
-                              tier3Answers[q.key] === opt ? 'report-quiz-option--active' : '',
-                              tier3AnswerFlash === q.key ? 'report-quiz-option--flash' : '',
+                              't3-q-option',
+                              tier3Answers[q.key] === opt ? 't3-q-option--active' : '',
+                              tier3AnswerFlash === q.key ? 't3-q-option--flash' : '',
                             ].filter(Boolean).join(' ')}
                             onClick={() => handleTier3Answer(q.key, opt)}
                           >{opt}</button>
@@ -1276,13 +1552,14 @@ export default function ReportPage() {
                       </div>
                     </div>
                   );
-                })()}
+                })() : null}
                 {tier3Error && <p className="report-q-error">{tier3Error}</p>}
               </div>
             ) : tier3Generating ? (
-              <div className="report-loading">
-                <div className="report-loading-spinner" />
-                <p>AI 正在根据你的偏好生成专属方案...</p>
+              <div className="t3-generating">
+                <div className="t3-generating-ring" />
+                <p className="t3-generating-text">AI 正在根据你的偏好生成专属方案...</p>
+                <p className="t3-generating-sub">通常需要几十秒，请稍候</p>
               </div>
             ) : null}
           </div>
@@ -1302,20 +1579,54 @@ export default function ReportPage() {
                 <button className="archive-modal-close" onClick={() => setShowArchive(false)}>✕</button>
               </div>
               <div className="archive-modal-body">
-                {myTier3 ? (
-                  <div className="pc-report-card">
-                    <div className="pc-report-row">
-                      <span className="pc-report-label">妆容风格</span>
-                      <span className="pc-report-value">{myTier3.style || myTier3.scenario || '—'}</span>
+                {myTier3Archives.length > 0 ? (
+                  <>
+                    <div className="pc-archive-header">
+                      <span className="pc-archive-title">专属报告档案</span>
+                      <span className="pc-archive-count">共 {myTier3Archives.length} 份</span>
                     </div>
-                    {myTier3.expireAt ? (
-                      <div className="pc-report-row">
-                        <span className="pc-report-label">到期时间</span>
-                        <span className={"pc-report-value" + (expiringSoon ? " pc-expire-warn" : "")}>{formatExpireDate(myTier3.expireAt)}</span>
-                      </div>
-                    ) : null}
-                    {expiringSoon ? <p className="pc-expire-warning">⚠️ 专属报告即将到期，请及时查看</p> : null}
-                  </div>
+                    {myTier3Archives.map((a) => {
+                      const soon = a.expireAt ? (a.expireAt * 1000 - Date.now()) <= 5 * 24 * 60 * 60 * 1000 : false;
+                      const isOpen = archiveOpenId === a.id;
+                      return (
+                        <div key={a.id} className={"pc-report-card" + (a.expired ? " pc-report-card--expired" : "")}>
+                          <div className="pc-report-card-head" role="button" onClick={() => setArchiveOpenId(isOpen ? null : a.id)}>
+                            {a.photoUrl ? (
+                              <img className="pc-report-photo" src={a.photoUrl} alt="报告照片" />
+                            ) : <div className="pc-report-photo pc-report-photo--empty">📷</div>}
+                            <div className="pc-report-card-main">
+                              <div className="pc-report-card-line">
+                                <span className="pc-report-card-style">{a.style || a.scenario || "专属方案"}</span>
+                                {a.expired ? <span className="pc-report-tag pc-report-tag--expired">已过期</span> : soon ? <span className="pc-report-tag pc-report-tag--soon">即将到期</span> : <span className="pc-report-tag">有效</span>}
+                              </div>
+                              <div className="pc-report-card-sub">生成于 {formatExpireDate(a.createdAt)} · 点击查看完整报告</div>
+                            </div>
+                            <span className="pc-report-card-arrow">{isOpen ? "↑" : "↓"}</span>
+                          </div>
+                          {isOpen ? (
+                            <div className="pc-report-detail">
+                              <div className="pc-report-detail-meta">
+                                <div className="pc-report-row"><span className="pc-report-label">妆容风格</span><span className="pc-report-value">{a.style || a.scenario || "—"}</span></div>
+                                <div className="pc-report-row"><span className="pc-report-label">生成时间</span><span className="pc-report-value">{formatExpireDate(a.createdAt)}</span></div>
+                                <div className="pc-report-row"><span className="pc-report-label">到期时间</span><span className={"pc-report-value" + (soon ? " pc-expire-warn" : "")}>{formatExpireDate(a.expireAt)}</span></div>
+                                {soon ? <p className="pc-expire-warning">⚠️ 专属报告即将到期，请及时查看</p> : null}
+                              </div>
+                              {archiveDetailLoading && archiveOpenId === a.id ? (
+                                <p className="pc-report-detail-loading">报告详情加载中...</p>
+                              ) : archiveDetail && archiveDetail.id === a.id && archiveDetail.content ? (
+                                <Tier3Report
+                                  content={{ ...archiveDetail.content, _scenario: archiveDetail.scenario || a.scenario || "今日妆容" }}
+                                  photoUrl={archiveDetail.photoUrl}
+                                />
+                              ) : (
+                                <p className="pc-report-detail-loading">无法加载该报告详情</p>
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </>
                 ) : (
                   <div className="archive-empty">
                     <p>暂无专属报告</p>
@@ -1324,7 +1635,7 @@ export default function ReportPage() {
                       className="archive-reupload-btn"
                       onClick={() => {
                         setShowArchive(false);
-                        setActiveTab('专属');
+                        setActiveTab("专属");
                       }}
                     >
                       ✨ 去生成专属报告

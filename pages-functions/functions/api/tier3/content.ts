@@ -2,8 +2,9 @@ import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
 import { requireAuth } from "../../_utils";
 
 // GET /api/tier3/content
-// 个人中心：返回当前用户最新的、未过期的专属（tier3）报告的简要信息
-// （妆容风格 + 到期时间），用于个人中心轻展示
+// 个人中心：返回当前用户已生成的专属（tier3）报告档案列表。
+// 专属报告为"纯新增"模式：每生成一份都是一条独立档案（不互相覆盖），
+// 按生成时间倒序返回，前端档案页逐条展示、可点击查看详情。
 export const GET: FrameworkCallbackOptions["GET"] = async (context) => {
   const { request, env } = context;
   const user = await requireAuth(request, env);
@@ -14,37 +15,44 @@ export const GET: FrameworkCallbackOptions["GET"] = async (context) => {
     });
   }
   const now = Math.floor(Date.now() / 1000);
-  // 1. 最新且未过期的专属报告（场景 + 到期时间）
-  const row = await env.DB.prepare(
-    `SELECT scenario, expire_at FROM reports_tier3 WHERE user_id = ? AND expire_at > ? ORDER BY created_at DESC LIMIT 1`
-  )
-    .bind(user.userId, now)
-    .first<any>();
-  if (!row) {
-    return new Response(JSON.stringify({ found: false }), {
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-  // 2. 妆容风格：取用户最新初识报告的 personaTags（短标签），否则回退到专属报告场景
+
+  // 用户最新一份初识报告的 personaTags（短标签），作为"妆容风格"展示回退
+  let t1Style: string | null = null;
   const t1 = await env.DB.prepare(
     `SELECT report_data FROM reports_tier1 WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`
   )
     .bind(user.userId)
     .first<any>();
-  let style: string | null = null;
   try {
-    if (t1) style = JSON.parse(t1.report_data)?.personaTags || null;
+    if (t1) t1Style = JSON.parse(t1.report_data)?.personaTags || null;
   } catch {
-    style = null;
+    t1Style = null;
   }
-  if (!style) style = row.scenario || null;
+
+  // 该用户的全部专属报告档案（含已过期，前端按需标记过期状态）
+  const rows = await env.DB.prepare(
+    `SELECT id, scenario, face_photo_key, created_at, expire_at
+     FROM reports_tier3
+     WHERE user_id = ?
+     ORDER BY created_at DESC`
+  )
+    .bind(user.userId)
+    .all<any>();
+
+  const reports = (rows.results || []).map((r) => ({
+    id: r.id,
+    scenario: r.scenario || null,
+    style: t1Style || r.scenario || null,
+    photoUrl: r.face_photo_key
+      ? "/api/r2-proxy?key=" + encodeURIComponent(r.face_photo_key) + "&bucket=temp"
+      : null,
+    createdAt: r.created_at ?? null,
+    expireAt: r.expire_at ?? null,
+    expired: typeof r.expire_at === "number" ? r.expire_at <= now : false,
+  }));
+
   return new Response(
-    JSON.stringify({
-      found: true,
-      style,
-      scenario: row.scenario || null,
-      expireAt: row.expire_at ?? null,
-    }),
+    JSON.stringify({ found: reports.length > 0, reports }),
     { headers: { "Content-Type": "application/json" } }
   );
 };
