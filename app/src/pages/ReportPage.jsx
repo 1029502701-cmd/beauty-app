@@ -218,19 +218,23 @@ function Tier3Report({ content, onRefresh, onShare, shareLoading, shareDone, pho
     <div className="t3-page">
       {/* 报告头部（进阶报告 hero 同款视觉） */}
       <div className="t3-hero">
-        <div className="t3-hero-badge">✦ YOUR MAKEUP PLAN ✦</div>
-        <h1 className="t3-hero-title">专属美妆方案</h1>
-        <div className="t3-hero-subtitle">
-          <span className="t3-hero-line">—</span>
-          <span>{styleTag || '为你定制'} · {content._scenario || '今日妆容'}</span>
-          <span className="t3-hero-line">—</span>
-        </div>
-        {photoUrl && (
-          <div className="t3-hero-photo-wrap">
-            <img className="t3-hero-photo" src={photoUrl} alt="报告照片" />
-            <span className="t3-hero-photo-label">本次报告使用照片</span>
+        <div className="t3-hero-top">
+          <div className="t3-hero-text-col">
+            <div className="t3-hero-badge">✦ YOUR MAKEUP PLAN ✦</div>
+            <h1 className="t3-hero-title">专属美妆方案</h1>
+            <div className="t3-hero-subtitle">
+              <span className="t3-hero-subtitle-tag">{styleTag || '为你定制'}</span>
+              <span className="t3-hero-subtitle-dot">·</span>
+              <span className="t3-hero-subtitle-scene">{content._scenario || '今日妆容'}</span>
+            </div>
           </div>
-        )}
+          {photoUrl && (
+            <div className="t3-hero-photo-wrap">
+              <img className="t3-hero-photo" src={photoUrl} alt="报告照片" />
+              <span className="t3-hero-photo-label">本次照片</span>
+            </div>
+          )}
+        </div>
         {overallAdvice && (
           <div className="t3-hero-advice">
             <div className="t3-hero-advice-label">✦ 方案解读</div>

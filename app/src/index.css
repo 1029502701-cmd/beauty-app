@@ -1368,28 +1368,41 @@
 .pc-report-value { font-size: 15px; font-weight: 600; color: var(--text-h); }
 .pc-report-value.pc-expire-warn { color: #e11d48; }
 
-/* Tier3 hero photo (user-uploaded face photo shown top-right of the report) */
+/* Tier3 hero: text column (left, tightened) + larger user photo (right) */
+.t3-hero-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.t3-hero-text-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.t3-hero-subtitle-tag { color: #3d1f2e; font-weight: 700; }
+.t3-hero-subtitle-dot { color: #d4a0b0; }
+.t3-hero-subtitle-scene { color: #8a6070; }
 .t3-hero-photo-wrap {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  width: 76px;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
 }
 .t3-hero-photo {
-  width: 56px;
-  height: 56px;
+  width: 104px;
+  height: 104px;
   object-fit: cover;
-  border-radius: 50%;
-  border: 2px solid #fff;
-  box-shadow: 0 2px 8px rgba(219, 39, 119, 0.25);
+  border-radius: 16px;
+  border: 3px solid #fff;
+  box-shadow: 0 4px 14px rgba(219, 39, 119, 0.28);
   background: #fff;
 }
 .t3-hero-photo-label {
-  font-size: 9px;
+  font-size: 10px;
   color: #c08aaa;
   letter-spacing: .3px;
   white-space: nowrap;
@@ -2085,32 +2098,6 @@
   pointer-events: none;
   background: linear-gradient(90deg, rgba(219, 39, 119, .12), transparent);
 }
-.t3-hero-badge {
-  font-size: 10px;
-  color: #c08aaa;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  font-weight: 600;
-}
-.t3-hero-title {
-  font-size: 30px;
-  font-weight: 800;
-  color: #3d1f2e;
-  margin: 0;
-  line-height: 1.2;
-  letter-spacing: .5px;
-}
-.t3-hero-subtitle {
-  font-size: 13px;
-  color: #8a6070;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 500;
-  justify-content: center;
-}
-.t3-hero-line { color: #d4a0b0; font-size: 14px; }
 .t3-hero-advice {
   border-top: 1px solid #f5d8e4;
   padding-top: 14px;
