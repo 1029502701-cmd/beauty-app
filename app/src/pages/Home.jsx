@@ -1,6 +1,7 @@
-﻿import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext.jsx';
-import { BASE, pointsApi } from '../api.js';
+import { BASE, pointsApi, inviteApi } from '../api.js';
+import { composeShareCard, shareImage } from '../utils/makeShareCard.js';
 
 const PRODUCTS = [
   { id: 'ai-beauty', label: 'AI 美妆', icon: '💄' },
@@ -38,6 +39,11 @@ export default function Home({ onLogout }) {
   const [showModal, setShowModal] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState(null);
   const [pointsBalance, setPointsBalance] = useState(null);
+  const [inviteCode, setInviteCode] = useState(null);
+  const [invitedCount, setInvitedCount] = useState(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareDone, setShareDone] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -59,6 +65,55 @@ export default function Home({ onLogout }) {
     });
     return () => { cancelled = true; };
   }, [token]);
+
+  // 邀请码 + 已邀请人数
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    inviteApi.getMine().then((data) => {
+      if (cancelled) return;
+      setInviteCode(data.inviteCode || null);
+      setInvitedCount(data.invitedCount ?? 0);
+    }).catch(() => {
+      if (!cancelled) { setInviteCode(null); setInvitedCount(null); }
+    });
+    return () => { cancelled = true; };
+  }, [token]);
+
+  // 复制邀请码
+  const handleCopyInvite = async () => {
+    if (!inviteCode) return;
+    try {
+      await navigator.clipboard.writeText(inviteCode);
+      setInviteCopied(true);
+      setTimeout(() => setInviteCopied(false), 1500);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = inviteCode;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setInviteCopied(true);
+      setTimeout(() => setInviteCopied(false), 1500);
+    }
+  };
+
+  // 生成分享图（本地 canvas 合成）
+  const handleGenerateShareImage = async () => {
+    if (shareLoading || !inviteCode) return;
+    setShareLoading(true);
+    setShareDone(false);
+    try {
+      const blob = await composeShareCard(inviteCode);
+      await shareImage(blob);
+      setShareDone(true);
+    } catch (err) {
+      console.error('[Home] 生成分享图异常:', err);
+    } finally {
+      setShareLoading(false);
+    }
+  };
 
   const handleCopy = async (account) => {
     if (!account) return;
@@ -89,13 +144,34 @@ export default function Home({ onLogout }) {
 
   return (
     <div className="home-page">
-      {pointsBalance !== null && (
-        <div className="home-points-bar">
-          <span className="home-points-icon">💎</span>
-          <span className="home-points-label">当前积分</span>
-          <span className="home-points-value">{pointsBalance} 分</span>
+      {/* 邀请码卡片 */}
+      {inviteCode && (
+        <div className="home-invite-card">
+          <div className="home-invite-header">
+            <span className="home-invite-title">🎁 邀请好友</span>
+            <span className="home-invite-count">已成功邀请 {invitedCount ?? 0} 人</span>
+          </div>
+          {pointsBalance !== null && (
+            <div className="home-points-inline">
+              <span>积分：{pointsBalance}分</span>
+            </div>
+          )}
+          <div className="home-invite-code-row">
+            <code className="home-invite-code">{inviteCode}</code>
+            <button className="home-invite-copy-btn" onClick={handleCopyInvite}>
+              {inviteCopied ? '已复制 ✓' : '复制'}
+            </button>
+          </div>
+          <button
+            className={"home-invite-share-btn" + (shareLoading ? " home-invite-share-btn--loading" : "")}
+            onClick={handleGenerateShareImage}
+            disabled={shareLoading}
+          >
+            {shareLoading ? '生成中…' : shareDone ? '✓ 已分享' : '生成分享图'}
+          </button>
         </div>
       )}
+
       <div className="home-product-grid">
         {PRODUCTS.map((p) => (
           <button

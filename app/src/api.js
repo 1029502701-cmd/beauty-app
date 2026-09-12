@@ -34,11 +34,31 @@ export const authApi = {
 };
 
 // ── Points APIs (via auth-center, cross-origin allowed) ───────────────────────
+
+// Invite APIs
+export const inviteApi = {
+  getMine: async () => {
+    const token = localStorage.getItem('session_token');
+    if (!token) throw new Error('未登录');
+    const res = await fetch(BASE + '/invite/mine', {
+      headers: { Authorization: 'Bearer ' + token },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        tokenInvalid = true;
+        localStorage.removeItem('session_token');
+      }
+      throw new Error((data.error) || '获取邀请码失败');
+    }
+    return data;
+  },
+};
 export const pointsApi = {
   getBalance: async () => {
     const token = localStorage.getItem('session_token');
     if (!token) throw new Error('未登录');
-    const res = await fetch('https://auth.meijian.top/api/points/balance', {
+    const res = await fetch(BASE + '/points/balance', {
       headers: { Authorization: 'Bearer ' + token },
     });
     const data = await res.json().catch(() => ({}));

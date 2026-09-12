@@ -40,6 +40,7 @@ jobs:
           cp app/dist/icons.svg pages-functions/dist/ 2>/dev/null || true
           cp app/dist/_curated-products.json pages-functions/dist/ 2>/dev/null || true
           cp app/dist/mock-pay.html pages-functions/dist/ 2>/dev/null || true
+          cp app/dist/share-card-template.jpg pages-functions/dist/ 2>/dev/null || true
 
       - name: Deploy
         run: |

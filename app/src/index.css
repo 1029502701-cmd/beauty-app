@@ -1211,6 +1211,12 @@
   opacity: .5;
   cursor: not-allowed;
 }
+.report-points-hint {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--muted, #888);
+  text-align: center;
+}
 .report-redeem-input-inline {
   width: 100%;
   height: 40px;
@@ -1427,6 +1433,7 @@
   max-width: 400px;
 }
 .home-points-icon {
+  flex-shrink: 0;
   font-size: 16px;
 }
 .home-points-label {
@@ -1440,6 +1447,106 @@
   color: var(--accent);
   margin-left: auto;
 }
+.home-points-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 2px;
+}
+.home-points-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.home-points-hint {
+  font-size: 11px;
+  color: var(--text);
+  opacity: 0.6;
+  margin: 0;
+}
+
+/* ===== Invite Card (Home) ===== */
+.home-invite-card {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 14px;
+}
+.home-invite-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.home-invite-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+.home-invite-count {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 500;
+}
+.home-points-inline {
+  font-size: 13px;
+  color: var(--accent);
+  font-weight: 500;
+  padding: 2px 0;
+}
+.home-invite-code-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.home-invite-code {
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: var(--text-h);
+  flex: 1;
+}
+.home-invite-copy-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 500;
+}
+.home-invite-copy-btn:active {
+  opacity: 0.7;
+}
+.home-invite-share-btn {
+  height: 40px;
+  border-radius: 10px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.home-invite-share-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.home-invite-share-btn--loading {
+  opacity: 0.7;
+}
+
 
 .report-redo-upload {
   margin-top: 16px;
@@ -1528,3 +1635,5 @@
   margin: 0;
 }
 
+
+.report-quiz-photo-step { display: flex; flex-direction: column; gap: 10px; padding: 16px 0; text-align: center; }
