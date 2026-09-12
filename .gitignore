@@ -113,3 +113,16 @@ test-report.*
 test_tier3_tab.png
 test_tier1_counter.mjs
 seed_test.sql
+
+# 临时排障脚本 (report-page 编辑草稿)
+rp*.py
+rp_*.js
+rp1.py
+_edit_rp.py
+_rp_edit.py
+_rp_head.jsx
+_rp_ui.py
+_prod_tokens.json
+_shot/
+pages-functions/.wf-test/
+pages-functions/.wf-test2/
