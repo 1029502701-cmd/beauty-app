@@ -18,6 +18,7 @@ export interface Ctx {
     ADMIN_USERNAME?: string;
     ADMIN_PASSWORD?: string;
     AUTH_JWT_SECRET?: string;
+    AUTH_CENTER_SERVICE_TOKEN?: string;
   };
 }
 
@@ -105,7 +106,7 @@ async function verifyHmacSha256(key: string, message: string, signature: Uint8Ar
   return crypto.subtle.verify('HMAC', cryptoKey, signature, enc.encode(message));
 }
 
-export interface JwtPayload {
+export interface JwtPayload { phone?: string; 
   user_id: string;
   iat: number;
   exp: number;
@@ -146,6 +147,92 @@ export async function verifyJwt(token: string, secret: string): Promise<JwtPaylo
   }
 }
 
+
+// ── 账号中枢（chat-ai-auth）服务令牌直连 ─────────────────────────────────────────
+// 积分数据由中枢统一管理：读/扣都走 /api/sync/points*，带服务令牌，不再透传用户 JWT。
+// AUTH_CENTER_SERVICE_TOKEN 为中枢签发的服务令牌（Pages secret，勿写进 wrangler.toml）。
+export const AUTH_CENTER_URL =
+  "https://chat-ai-auth.y512149214.workers.dev";
+
+/**
+ * 解析登录用户手机号（供中枢 /api/sync/points* 用）：
+ * 1) 中枢 JWT 载荷 phone（若有）
+ * 2) 本端 D1 users.phone（按 userId）
+ * 3) KV session（按 token）
+ */
+export async function resolveUserPhone(
+  req: Request,
+  env: Ctx["env"],
+  user: AuthUser
+): Promise<string> {
+  const authHeader = req.headers.get("Authorization") || "";
+  let token = "";
+  if (authHeader.startsWith("Bearer ")) token = authHeader.slice("Bearer ".length).trim();
+  else token = authHeader.replace("Bearer ", "").trim();
+
+  // 1) 中枢 JWT 的 phone claim
+  if (token && env.AUTH_JWT_SECRET) {
+    const payload = await verifyJwt(token, env.AUTH_JWT_SECRET);
+    if (payload?.phone) return String(payload.phone);
+  }
+
+  // 2) 本端 D1 users 表
+  const row = await env.DB
+    .prepare("SELECT phone FROM users WHERE id = ? LIMIT 1")
+    .bind(user.userId)
+    .first<{ phone: string | null }>();
+  if (row?.phone) return String(row.phone);
+
+  // 3) KV session
+  if (token && env.SESSION_KV) {
+    const sessionStr = await env.SESSION_KV.get(SESSION_PREFIX + token);
+    if (sessionStr) {
+      const session: { userId?: string } = JSON.parse(sessionStr);
+      const id = session.userId || user.userId;
+      const srow = await env.DB
+        .prepare("SELECT phone FROM users WHERE id = ? LIMIT 1")
+        .bind(id)
+        .first<{ phone: string | null }>();
+      if (srow?.phone) return String(srow.phone);
+    }
+  }
+  return "";
+}
+
+/**
+ * 调中枢积分接口（带服务令牌）。中枢返回 { balance } 或 { consumed, balance, ... }；
+ * 非 2xx 时原样返回 { ok:false, status, error } 供调用方决定。
+ */
+export async function authCenterPoints(
+  env: Ctx["env"],
+  path: string,
+  opts: { phone: string; method?: string; body?: unknown }
+): Promise<Record<string, unknown> & { ok: boolean }> {
+  const serviceToken = env.AUTH_CENTER_SERVICE_TOKEN;
+  if (!serviceToken) {
+    return { ok: false, status: 502, error: "中枢服务令牌未配置" };
+  }
+  const url =
+    AUTH_CENTER_URL +
+    path +
+    (opts.phone ? "?phone=" + encodeURIComponent(opts.phone) : "");
+  try {
+    const res = await fetch(url, {
+      method: opts.method || (opts.body ? "POST" : "GET"),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + serviceToken,
+      },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+    const data: Record<string, unknown> = await res.json().catch(() => ({}));
+    if (!res.ok) return { ...data, ok: false, status: res.status };
+    return { ...data, ok: true, status: res.status };
+  } catch (err) {
+    console.error("[authCenterPoints] error:", err);
+    return { ok: false, status: 502, error: "网络错误，请稍后重试" };
+  }
+}
 
 /**
  * 中间件：优先验证 JWT，失败则回退到 session 验证，返回 AuthUser 或 null

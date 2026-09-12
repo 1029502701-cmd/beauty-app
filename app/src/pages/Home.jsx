@@ -12,7 +12,7 @@ const COMING_SOON = { id: 'coming-soon', label: '更多功能开发中...', icon
 
 function navigate(path) {
   if (path.startsWith('http')) {
-    window.open(path, '_blank');
+    window.location.href = path;
     return;
   }
   window.history.pushState({}, '', path);
@@ -61,9 +61,31 @@ export default function Home({ onLogout }) {
     pointsApi.getBalance().then((val) => {
       if (!cancelled) setPointsBalance(val);
     }).catch(() => {
-      if (!cancelled) setPointsBalance(null);
+      if (!cancelled) setPointsBalance(0);
     });
     return () => { cancelled = true; };
+  }, [token]);
+
+  // 刷新积分余额（进入/返回应用、浏览器从后台切回前台时重新拉取，避免缓存旧值显示 0）
+  const refreshPoints = () => {
+    if (!token) return;
+    pointsApi.getBalance().then((val) => {
+      setPointsBalance(val);
+    }).catch(() => {
+      /* 失败保留当前值，不覆盖为 0 */
+    });
+  };
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshPoints();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", refreshPoints);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", refreshPoints);
+    };
   }, [token]);
 
   // 邀请码 + 已邀请人数

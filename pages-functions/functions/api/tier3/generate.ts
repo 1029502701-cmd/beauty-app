@@ -1,5 +1,6 @@
 import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
-import { requireAuth, generateId , parseDeepseekJson } from "../../_utils";
+import { requireAuth, resolveUserPhone, authCenterPoints } from "../../_utils";
+
 import { findProductByKeyword } from "../_taobao";
 import type { Ctx } from "../../_utils";
 
@@ -9,8 +10,6 @@ import type { Ctx } from "../../_utils";
 // 专属报告是用户真实消耗积分/付费/兑换码生成的产物，采用纯新增（append-only）模式：
 // 每次生成都是一条新记录，不删除旧记录；旧报告由 30 天 expire_at 机制自然过期清理，
 // 个人中心/档案页通过 "ORDER BY created_at DESC LIMIT 1" 展示当前最新一份。
-const AUTH_CENTER_URL = "https://auth.meijian.top";
-
 export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
   try {
     return await handleTier3Generate(context);
@@ -34,7 +33,7 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
     });
   }
 
-  const authToken = (request.headers.get("Authorization") || "").replace(/^Bearer /, "");
+  const phone = await resolveUserPhone(request, env, user);
 
   let tier1ReportId: string | undefined;
   let questionnaireAnswers: Record<string, string> | undefined;
@@ -168,14 +167,10 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
   //    token_id 可空：积分解锁的报告不关联 token；token 解锁的报告关联已消耗的 token。
   // 3档报告生成成功 → 调中枢 grant-tier3（去重/金额由中枢定，中枢负责幂等）
   let tier3Points: { granted: boolean; balance: number } | null = null;
-  if (authToken) {
+  if (phone) {
     try {
-      const grantRes = await fetch(AUTH_CENTER_URL + "/api/points/grant-tier3", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + authToken },
-      });
-      const grantData: any = await grantRes.json().catch(() => ({}));
-      tier3Points = { granted: !!grantData.granted, balance: typeof grantData.balance === "number" ? grantData.balance : 0 };
+      const grantRes = await authCenterPoints(env, "/api/sync/points/grant-tier3", { phone, method: "POST", body: { phone } });
+      tier3Points = { granted: !!grantRes.granted, balance: typeof grantRes.balance === "number" ? grantRes.balance : 0 };
     } catch (e) {
       console.warn("[tier3/generate] grant-tier3 call failed, skipping points:", e);
     }
@@ -216,14 +211,10 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
 
   // 回传最新积分余额（本端 proxy 读 auth-center），前端据此刷新展示，保证"扣完积分"数字对得上。
   let latestBalance: number | null = null;
-  if (authToken) {
+  if (phone) {
     try {
-      const balRes = await fetch(AUTH_CENTER_URL + "/api/points/balance", {
-        method: "GET",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + authToken },
-      });
-      const balData: any = await balRes.json().catch(() => ({}));
-      if (balRes.ok && typeof balData.balance === "number") latestBalance = balData.balance;
+      const balRes = await authCenterPoints(env, "/api/sync/points", { phone });
+      if (balRes.ok && typeof balRes.balance === "number") latestBalance = balRes.balance;
     } catch (e) {
       console.warn("[tier3/generate] balance read failed, returning null:", e);
     }

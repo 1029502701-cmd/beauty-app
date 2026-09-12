@@ -35,7 +35,7 @@ pages-functions/dist-build/
 pages-functions/dist-test/
 pages-functions/dist-test2/
 pages-functions/migrations/
-pages-functions/functions/api/points/
+
 _playwright-cli/
 test_*.js
 _fix*.py

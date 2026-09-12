@@ -28,7 +28,6 @@ export default function Login({ onLogin }) {
   const [error, setError] = useState('');
   const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
-  const [needPassword, setNeedPassword] = useState(false);
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
   const [codeSending, setCodeSending] = useState(false);
@@ -74,31 +73,31 @@ export default function Login({ onLogin }) {
     }
   };
 
+  // 登录/注册：走中枢（本端 /api/auth/login-or-register 代理到 auth-center），不再本地建号
   const handleAutoLogin = async () => {
     setError('');
-    setNeedPassword(false);
     if (!isValidAccount(account)) { setError('请输入正确的手机号或邮箱'); return; }
+    if (!password || password.length < 6) { setError('请设置密码（至少6位，含字母和数字）'); return; }
     setLoading(true);
     try {
       // 从 sessionStorage 读取邀请码（来自 App.jsx 回调 URL 提取）
       const inviteCode = sessionStorage.getItem('invite_code') || '';
-      const url = '/api/auth/auto-login?account=' + encodeURIComponent(account) + (inviteCode ? '&invite=' + encodeURIComponent(inviteCode) : '');
-      const finalUrl = password ? url + '&password=' + encodeURIComponent(password) : url;
-      const res = await fetch(finalUrl);
+      const res = await fetch('/api/auth/login-or-register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          account,
+          password,
+          // 首次使用走注册通道（可带邀请码）；已存在账号则直接登录
+          isRegister: true,
+          ...(inviteCode ? { inviteCode } : {}),
+        }),
+      });
       const data = await res.json();
-      if (data.needPassword) {
-        setNeedPassword(true);
-        if (!res.ok) setError(data.error || '需要密码');
-        return;
-      }
       if (!res.ok) throw new Error(data.error || '登录失败');
-      if (data.hasPassword === false) {
-        await login(data.sessionId);
-        window.location.href = "/set-password" + window.location.search;
-        return;
-      }
-      const isLoggedIn = await checkProfile(data.sessionId);
-      if (isLoggedIn) await finishLogin(data.sessionId);
+      // 拿到中枢 JWT → 作为该用户全局身份
+      await login(data.token);
+      finishLogin(data.token);
     } catch (e) { setError(e.message || '登录失败，请重试'); }
     finally { setLoading(false); }
   };
@@ -169,11 +168,9 @@ export default function Login({ onLogin }) {
             <div className="input-group">
               <input type="text" className="input-field" placeholder="手机号 / 邮箱" value={account} onChange={(e) => { setAccount(e.target.value); setError(""); }} onKeyDown={(e) => { if (e.key === "Enter") handleAutoLogin(); }} />
             </div>
-            {needPassword && (
-              <div className="input-group">
-                <input type="password" className="input-field" placeholder="请输入密码" value={password} onChange={(e) => { setPassword(e.target.value); setError(""); }} onKeyDown={(e) => { if (e.key === "Enter") handleAutoLogin(); }} />
-              </div>
-            )}
+            <div className="input-group">
+              <input type="password" className="input-field" placeholder="密码（至少6位，含字母和数字）" value={password} onChange={(e) => { setPassword(e.target.value); setError(""); }} onKeyDown={(e) => { if (e.key === "Enter") handleAutoLogin(); }} />
+            </div>
           </>
         ) : (
           <>
@@ -192,8 +189,8 @@ export default function Login({ onLogin }) {
         {error && <p className="error-msg">{error}</p>}
 
         {tab === "password" ? (
-          <button className="login-btn" disabled={loading || !isValidAccount(account)} onClick={handleAutoLogin}>
-            {loading ? "登录中..." : (needPassword ? "确认登录" : "登录 / 注册")}
+          <button className="login-btn" disabled={loading || !isValidAccount(account) || password.length < 6} onClick={handleAutoLogin}>
+            {loading ? "登录中..." : "登录 / 注册"}
           </button>
         ) : (
           <button className="login-btn" disabled={loading || !isValidPhone(phone) || code.length !== 6} onClick={handleSmsSubmit}>
