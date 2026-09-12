@@ -51,8 +51,15 @@ export const GET: FrameworkCallbackOptions["GET"] = async (context) => {
     expired: typeof r.expire_at === "number" ? r.expire_at <= now : false,
   }));
 
+  // 是否已通过积分解锁（本端 tier3_points_unlock 记录），用于刷新/换设备后恢复资格
+  const unlockRow = await env.DB.prepare(
+    `SELECT unlocked_at FROM tier3_points_unlock WHERE user_id = ? LIMIT 1`
+  )
+    .bind(user.userId)
+    .first<{ unlocked_at: number }>();
+
   return new Response(
-    JSON.stringify({ found: reports.length > 0, reports }),
+    JSON.stringify({ found: reports.length > 0, reports, pointsUnlocked: !!unlockRow }),
     { headers: { "Content-Type": "application/json" } }
   );
 };

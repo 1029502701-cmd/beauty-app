@@ -201,8 +201,36 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
     )
     .run();
 
+  // 积分解锁路径：生成成功即完成一次解锁，顺带把本端"已解锁资格"落库（幂等，不重复写）。
+  // 这样即便前端漏调 /points-unlock-record，资格也一定有持久化记录，刷新/换设备不丢。
+  if (isPointsUnlock) {
+    try {
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO tier3_points_unlock (user_id, source, report_ref, unlocked_at)
+         VALUES (?, 'points', ?, ?)`
+      ).bind(user.userId, reportId, now).run();
+    } catch (e) {
+      console.warn("[tier3/generate] tier3_points_unlock record failed, continuing:", e);
+    }
+  }
+
+  // 回传最新积分余额（本端 proxy 读 auth-center），前端据此刷新展示，保证"扣完积分"数字对得上。
+  let latestBalance: number | null = null;
+  if (authToken) {
+    try {
+      const balRes = await fetch(AUTH_CENTER_URL + "/api/points/balance", {
+        method: "GET",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + authToken },
+      });
+      const balData: any = await balRes.json().catch(() => ({}));
+      if (balRes.ok && typeof balData.balance === "number") latestBalance = balData.balance;
+    } catch (e) {
+      console.warn("[tier3/generate] balance read failed, returning null:", e);
+    }
+  }
+
   return new Response(
-    JSON.stringify({ id: reportId, content: reportContent, expireAt, facePhotoKey, points: tier3Points }),
+    JSON.stringify({ id: reportId, content: reportContent, expireAt, facePhotoKey, points: tier3Points, balance: latestBalance }),
     { headers: { "Content-Type": "application/json" } }
   );
 };

@@ -425,6 +425,9 @@ export default function ReportPage() {
   // 专属报告积分余额 / 扣减中标记
   const [tier3PointsBalance, setTier3PointsBalance] = useState(null);
   const [tier3PointsConsume, setTier3PointsConsume] = useState(false);
+  // 是否已积分解锁专属报告（本端 tier3_points_unlock 持久化记录）；刷新/换设备后仍能恢复资格，
+  // 比 tier3PointsGrantedRef 更可靠（后者只是当次会话内存态）
+  const [tier3PointsUnlocked, setTier3PointsUnlocked] = useState(false);
   // 专属报告（tier3）照片上传：问卷完成 → 上传照片 → 开始生成
   const [tier3Photo, setTier3Photo] = useState(null);
   const [tier3PhotoKey, setTier3PhotoKey] = useState(null);
@@ -665,7 +668,9 @@ const tier3PhotoKeyLiveRef = useRef(null);
     return () => { cancelled = true; };
   }, [activeTab, token]);
 
-  // 专属报告解锁：查询积分余额（auth-center /api/points/balance），用于"消耗积分解锁"按钮的可用性判断
+  // 专属报告解锁：查询积分余额 + 是否已积分解锁（本端 tier3_points_unlock 落库）。
+  // 余额用于"消耗积分解锁"按钮可用性；pointsUnlocked 用于刷新/换设备后恢复"已解锁资格"，
+  // 不再依赖当次会话的内存 ref，避免"已扣积分但状态丢失"。
   useEffect(() => {
     if (!token) return;
     if (activeTab !== '专属') return;
@@ -675,6 +680,14 @@ const tier3PhotoKeyLiveRef = useRef(null);
     }).catch(() => {
       if (!cancelled) setTier3PointsBalance(null);
     });
+    pointsApi.getPointsUnlockStatus().then((st) => {
+      if (cancelled) return;
+      if (st.unlocked) {
+        setTier3PointsUnlocked(true);
+        tier3PointsGrantedRef.current = true;
+      }
+      if (typeof st.balance === 'number') setTier3PointsBalance(st.balance);
+    }).catch(() => { /* 查询失败不阻断 */ });
     return () => { cancelled = true; };
   }, [activeTab, token]);
 
@@ -753,7 +766,8 @@ const tier3PhotoKeyLiveRef = useRef(null);
     }
   }, [reportId, tier3Generating, token]);
   // 消耗积分解锁：动作成功那一刻调本端 /api/points/consume（代理 auth-center，价格/去重服务端定），
-  // 成功后设置 pointsGranted 并进入问卷；真正生成走 /api/tier3/generate。
+  // 成功后：1) 强制刷新余额（治"积分不变"）；2) 把资格落库（本端 tier3_points_unlock，刷新不丢）；3) 进入问卷。
+  // 真正生成走 /api/tier3/generate（fromPoints=true，不再重复扣积分）。
   const tier3PointsGrantedRef = useRef(false);
   const handleTier3UnlockByPoints = useCallback(async () => {
     if (tier3PointsConsume || !token || tier3PointsBalance == null || tier3PointsBalance < UNLOCK_REPORT_AMOUNT) return;
@@ -762,15 +776,25 @@ const tier3PhotoKeyLiveRef = useRef(null);
     try {
       // 价格由服务端写死（UNLOCK_REPORT_AMOUNT），前端只传 reportId；once 去重保证一人一次。
       // reportId 为空时用稳定占位 tier3_default，保证同一用户对"默认"报告也一人一次。
-      const result = await pointsApi.unlockReport(reportId || 'tier3_default');
+      const ref = reportId || 'tier3_default';
+      const result = await pointsApi.unlockReport(ref);
       if (result.consumed || (result.reason && /已解锁|已扣过/.test(result.reason))) {
-        // 扣成功 或 之前已扣过（一人一次去重）→ 都视为具备资格，进入问卷
+        // 扣成功 或 之前已扣过（一人一次去重）→ 都视为具备资格
         tier3PointsGrantedRef.current = true;
-        if (result.balance != null) setTier3PointsBalance(result.balance);
+        setTier3PointsUnlocked(true);
+        // 强制刷新余额：以服务端最新值为准（先尝试接口回传，再兜底重新拉一次），修"积分不变"
+        try {
+          const fresh = await pointsApi.getBalance();
+          setTier3PointsBalance(typeof fresh === 'number' ? fresh : result.balance);
+        } catch {
+          if (result.balance != null) setTier3PointsBalance(result.balance);
+        }
+        // 资格落库（幂等），刷新/换设备后仍能恢复；失败不阻断
+        try { await pointsApi.recordPointsUnlock(ref); } catch { /* 忽略 */ }
         setTier3ShowQuestionnaire(true);
         setTier3Error(null);
       } else {
-        setTier3PointsBalance(result.balance != null ? result.balance : tier3PointsBalance);
+        if (result.balance != null) setTier3PointsBalance(result.balance);
         setTier3Error(result.reason || '积分不足或扣减失败，请重试');
       }
     } catch {
@@ -863,7 +887,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
       setTier3Error('请先上传照片');
       return;
     }
-    if (!tier3TokenStatus?.hasToken && !tier3PointsGrantedRef.current) {
+    if (!tier3TokenStatus?.hasToken && !tier3PointsGrantedRef.current && !tier3PointsUnlocked) {
       setTier3Error('token 已耗尽，请购买或使用兑换码/积分后重试');
       return;
     }
@@ -871,7 +895,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
     setTier3Error(null);
     setTier3Content(null);
     try {
-      const usePoints = !tier3TokenStatus?.hasToken && tier3PointsGrantedRef.current;
+      const usePoints = !tier3TokenStatus?.hasToken && (tier3PointsGrantedRef.current || tier3PointsUnlocked);
       const res = await fetch(BASE + '/tier3/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
@@ -896,7 +920,11 @@ const tier3PhotoKeyLiveRef = useRef(null);
             setTier3Content(data.content);
         setTier3ContentPhotoUrl(tier3PhotoKeyLiveRef.current ? "/api/r2-proxy?key=" + encodeURIComponent(tier3PhotoKeyLiveRef.current) + "&bucket=temp" : null);
         setTier3TokenStatus({ hasToken: false, count: 0 });
+        // 本次生成已消耗资格（积分/tokens 各扣各的），清掉内存态；
+        // tier3PointsUnlocked 保留 true：本报告的积分解锁资格已落库，刷新后仍显示"已解锁"。
         tier3PointsGrantedRef.current = false;
+        // 生成成功后回传的最新余额（本端 generate 已 proxy 读 auth-center），刷新"扣完积分"数字
+        if (typeof data.balance === 'number') setTier3PointsBalance(data.balance);
       }
     } catch (e) {
         setTier3Error('网络异常，请重试');
@@ -1409,7 +1437,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
               shareLoading={shareLoading}
               shareDone={shareDone}
             />
-            ) : (!tier3TokenStatus.hasToken && !tier3PointsGrantedRef.current) ? (
+            ) : (!tier3TokenStatus.hasToken && !tier3PointsGrantedRef.current && !tier3PointsUnlocked) ? (
               <div className="t3-unlock">
                 <div className="t3-unlock-hero">
                   <div className="t3-unlock-badge">✦ PREMIUM REPORT ✦</div>
@@ -1432,11 +1460,11 @@ const tier3PhotoKeyLiveRef = useRef(null);
                   <button
                     className="t3-unlock-tile"
                     onClick={handleTier3UnlockByPoints}
-                    disabled={tier3PointsConsume || tier3PointsBalance === null || tier3PointsBalance < UNLOCK_REPORT_AMOUNT}
+                    disabled={tier3PointsUnlocked || tier3PointsConsume || tier3PointsBalance === null || tier3PointsBalance < UNLOCK_REPORT_AMOUNT}
                   >
                     <span className="t3-unlock-tile-icon">⭐</span>
                     <span className="t3-unlock-tile-label">
-                      {tier3PointsConsume ? '扣减中…' : tier3PointsBalance === null ? '积分加载中…' : tier3PointsBalance < UNLOCK_REPORT_AMOUNT ? '积分不足' : UNLOCK_REPORT_AMOUNT + ' 积分解锁'}
+                      {tier3PointsUnlocked ? '已解锁（本次已扣 ' + UNLOCK_REPORT_AMOUNT + ' 积分）' : tier3PointsConsume ? '扣减中…' : tier3PointsBalance === null ? '积分加载中…' : tier3PointsBalance < UNLOCK_REPORT_AMOUNT ? '积分不足' : UNLOCK_REPORT_AMOUNT + ' 积分解锁'}
                     </span>
                     {tier3PointsBalance !== null && <span className="t3-unlock-tile-sub">当前余额 {tier3PointsBalance} 积分</span>}
                   </button>
