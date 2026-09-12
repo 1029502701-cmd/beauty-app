@@ -3,7 +3,17 @@ import { AuthContext } from '../context/AuthContext.jsx';
 import RequireAuth from '../router/RequireAuth.jsx';
 import Tier2Result from './Tier2Result.jsx';
 import { getCompliment } from './complimentMap.js';
-import { BASE } from '../api.js';
+import { BASE, pointsApi } from '../api.js';
+import { checkAndResize } from '../utils/imageResize.js';
+function dataUrlToBlob(dataUrl) {
+  const commaIdx = dataUrl.indexOf(',');
+  const base64 = dataUrl.slice(commaIdx + 1);
+  const mime = dataUrl.slice(5, commaIdx) || 'image/jpeg';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
 import { removeStorageItem, STORAGE_KEYS } from '../utils/storage.js';
 import CapturePhotoUpload from './CapturePhotoUpload.jsx';
 import Tier2PhotoUpload from './Tier2PhotoUpload.jsx';
@@ -232,6 +242,17 @@ export default function ReportPage() {
   const [tier3Error, setTier3Error] = useState(null);
   const [tier3RedeemCode, setTier3RedeemCode] = useState('');
   const [tier3Redeeming, setTier3Redeeming] = useState(false);
+  // 专属报告积分余额 / 扣减中标记
+  const [tier3PointsBalance, setTier3PointsBalance] = useState(null);
+  const [tier3PointsConsume, setTier3PointsConsume] = useState(false);
+  // 专属报告（tier3）照片上传：问卷完成 → 上传照片 → 开始生成
+  const [tier3Photo, setTier3Photo] = useState(null);
+  const [tier3PhotoKey, setTier3PhotoKey] = useState(null);
+  const [tier3PhotoUploading, setTier3PhotoUploading] = useState(false);
+  const [tier3PhotoError, setTier3PhotoError] = useState(null);
+  const tier3PhotoInputRef = useRef(null);
+  const tier3PhotoKeyRef = useRef(null);
+  useEffect(() => { tier3PhotoKeyRef.current = tier3PhotoKey; }, [tier3PhotoKey]);
   const [tier3LoadError, setTier3LoadError] = useState(null);
   const [tier3PreviewText, setTier3PreviewText] = useState('');
   const [tier3PreviewLoading, setTier3PreviewLoading] = useState(true);
@@ -456,6 +477,19 @@ export default function ReportPage() {
     return () => { cancelled = true; };
   }, [activeTab, token]);
 
+  // 专属报告解锁：查询积分余额（auth-center /api/points/balance），用于"消耗积分解锁"按钮的可用性判断
+  useEffect(() => {
+    if (!token) return;
+    if (activeTab !== '专属') return;
+    let cancelled = false;
+    pointsApi.getBalance().then((val) => {
+      if (!cancelled) setTier3PointsBalance(val);
+    }).catch(() => {
+      if (!cancelled) setTier3PointsBalance(null);
+    });
+    return () => { cancelled = true; };
+  }, [activeTab, token]);
+
   // 个人中心：加载用户已生成的专属（tier3）报告简要信息
   useEffect(() => {
     if (!token) return;
@@ -509,6 +543,99 @@ export default function ReportPage() {
       setTier3Generating(false);
     }
   }, [reportId, tier3Generating, token]);
+  // 消耗积分解锁：先调 auth-center /api/points/consume 扣 6 积分（reason=redeem_tier3），
+  // 成功后设置 pointsGranted 并进入问卷；真正生成走 /api/tier3/generate，
+  // 后端"积分抵扣成功"与"token 可用"是并列的两条权限来源。
+  const tier3PointsGrantedRef = useRef(false);
+  const handleTier3UnlockByPoints = useCallback(async () => {
+    if (tier3PointsConsume || !token || tier3PointsBalance < 6) return;
+    setTier3PointsConsume(true);
+    setTier3Error(null);
+    try {
+      const t = localStorage.getItem('session_token');
+      const res = await fetch('https://auth.meijian.top/api/points/consume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t },
+        body: JSON.stringify({ reason: 'redeem_tier3', amount: 6 }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setTier3PointsBalance(Math.max(0, (d.balance ?? tier3PointsBalance) ?? 0));
+        setTier3Error('积分不足或扣减失败，请重试');
+      } else {
+        tier3PointsGrantedRef.current = true;
+        setTier3PointsBalance(d.balance ?? Math.max(0, tier3PointsBalance - 6));
+        setTier3ShowQuestionnaire(true);
+      }
+    } catch {
+      setTier3Error('网络异常，请重试');
+    } finally {
+      setTier3PointsConsume(false);
+    }
+  }, [tier3PointsConsume, token, tier3PointsBalance]);
+
+  // 专属报告照片选择（拍照/相册/文件）
+  const handleTier3PhotoPickCamera = async () => {
+    try {
+      setTier3PhotoError(null);
+      const { Camera, CameraSource } = await import('@capacitor/camera');
+      const r = await Camera.getPhoto({ quality: 85, allowEditing: false, resultType: 1, source: CameraSource.Camera });
+      setTier3Photo(r.dataUrl);
+    } catch {
+      tier3PhotoInputRef.current?.click();
+    }
+  };
+  const handleTier3PhotoPickGallery = async () => {
+    try {
+      setTier3PhotoError(null);
+      const { Camera, CameraSource } = await import('@capacitor/camera');
+      const r = await Camera.getPhoto({ quality: 85, allowEditing: false, resultType: 1, source: CameraSource.Photos });
+      setTier3Photo(r.dataUrl);
+    } catch {
+      tier3PhotoInputRef.current?.click();
+    }
+  };
+  const handleTier3PhotoInputChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      setTier3PhotoError(null);
+      const dataUrl = await checkAndResize(file);
+      setTier3Photo(dataUrl);
+    } catch {
+      setTier3PhotoError('照片处理失败，请换一张试试');
+    }
+  };
+  const handleTier3PhotoSubmit = async () => {
+    if (!tier3Photo || tier3PhotoUploading || !token) return;
+    setTier3PhotoUploading(true);
+    setTier3PhotoError(null);
+    try {
+      const blob = dataUrlToBlob(tier3Photo);
+      const form = new FormData();
+      form.append('photo', blob, 'tier3-photo.jpg');
+      const res = await fetch(BASE + '/tier3/upload-photo', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token },
+        body: form,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setTier3PhotoError(json?.error || '照片上传失败，请重试');
+        return;
+      }
+      setTier3PhotoKey(json.tier3FacePhotoKey || null);
+      setTier3Photo(null);
+      // 照片上传成功 → 开始分析生成
+      void handleTier3DoSubmit();
+    } catch {
+      setTier3PhotoError('网络异常，请重试');
+    } finally {
+      setTier3PhotoUploading(false);
+    }
+  };
+
   const handleTier3Back = useCallback(() => {
     setTier3CurrentQuestionIndex((prev) => Math.max(0, prev - 1));
   }, []);
@@ -523,20 +650,34 @@ export default function ReportPage() {
       setTier3Error('请选择所有选项');
         return;
     }
+    if (!tier3PhotoKeyRef.current) {
+      setTier3Error('请先上传照片');
+      return;
+    }
+    if (!tier3TokenStatus?.hasToken && !tier3PointsGrantedRef.current) {
+      setTier3Error('token 已耗尽，请购买或使用兑换码/积分后重试');
+      return;
+    }
     setTier3Generating(true);
     setTier3Error(null);
     setTier3Content(null);
     try {
+      const usePoints = !tier3TokenStatus?.hasToken && tier3PointsGrantedRef.current;
       const res = await fetch(BASE + '/tier3/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ tier1ReportId: reportId, questionnaireAnswers: tier3AnswersRef.current }),
+        body: JSON.stringify({
+          tier1ReportId: reportId,
+          questionnaireAnswers: tier3AnswersRef.current,
+          fromPoints: usePoints || undefined,
+          facePhotoKey: tier3PhotoKeyRef.current || undefined,
+        }),
       });
         const data = await res.json();
       if (!res.ok) {
             if (res.status === 403 && data.error === 'no_token') {
           setTier3TokenStatus({ hasToken: false, count: 0 });
-          setTier3Error('token 已耗尽，请购买后重试');
+          setTier3Error('token 已耗尽，请购买或使用兑换码/积分后重试');
         } else if (data.retryable) {
           setTier3Error('生成失败，token 未消耗，可重新尝试');
         } else {
@@ -545,6 +686,7 @@ export default function ReportPage() {
       } else {
             setTier3Content(data.content);
         setTier3TokenStatus({ hasToken: false, count: 0 });
+        tier3PointsGrantedRef.current = false;
       }
     } catch (e) {
         setTier3Error('网络异常，请重试');
@@ -554,7 +696,6 @@ export default function ReportPage() {
   }, [reportId, tier3Generating, tier3Answers, token]);
 
   const handleTier3Answer = useCallback((dimension, value) => {
-    const isLastQuestion = (tier3CurrentQuestionIndex === TIER3_QUESTIONS.length - 1);
     if (tier3TimerRef.current) {
       clearTimeout(tier3TimerRef.current);
       tier3TimerRef.current = null;
@@ -570,7 +711,7 @@ export default function ReportPage() {
       setTier3CurrentQuestionIndex((prev) => {
         const next = prev + 1;
             if (next >= TIER3_QUESTIONS.length) {
-                void handleTier3DoSubmit();
+                // 问卷全部完成 → 进入照片上传步骤（不再直接生成）
         } else {
                 return next;
         }
@@ -1024,11 +1165,21 @@ export default function ReportPage() {
                     maxLength={10}
                   />
                   {tier3Error && <p className="report-redeem-error">{tier3Error}</p>}
+                  {tier3PointsBalance !== null && (
+                    <p className="report-redeem-hint report-points-hint">积分余额：{tier3PointsBalance}（专属报告 6 积分）</p>
+                  )}
                 </div>
                 <div className="report-btn-row">
                   <button className="report-buy-btn" onClick={handleTier3Buy}>购买</button>
                   <button className="report-unlock-btn-alt" onClick={handleTier3Redeem} disabled={tier3Redeeming || !tier3RedeemCode.trim()}>
                     {tier3Redeeming ? '兑换中...' : '解锁'}
+                  </button>
+                  <button
+                    className="report-unlock-btn-alt"
+                    onClick={handleTier3UnlockByPoints}
+                    disabled={tier3PointsConsume || tier3PointsBalance === null || tier3PointsBalance < 6}
+                  >
+                    {tier3PointsConsume ? '扣减中...' : tier3PointsBalance === null ? '加载中...' : tier3PointsBalance < 6 ? '积分不足' : '6 积分解锁'}
                   </button>
                 </div>
               </div>
@@ -1063,6 +1214,46 @@ export default function ReportPage() {
                   <button className="report-quiz-back-btn" onClick={handleTier3Back}>‹ 上一题</button>
                 )}
                 {(() => {
+                  // 问卷全部完成 → 照片上传步骤
+                  const allAnswered = ['makeupStyle', 'scenario', 'skillLevel', 'timeCost'].every((d) => tier3Answers[d]);
+                  if (allAnswered && !tier3Content && !tier3Generating && !tier3PhotoKey) {
+                    return (
+                      <div className="report-quiz-photo-step">
+                        <p className="report-quiz-question-title">上传照片开始分析</p>
+                        <p className="report-unlock-hint">请上传一张清晰的正面照片，将为你生成专属分析</p>
+                        {tier3Photo ? (
+                          <div className="tier2-photo-selected" style={{margin: "10px auto"}}>
+                            <img className="tier2-photo-preview" src={tier3Photo} alt="照片预览" />
+                            <div className="tier2-photo-actions">
+                              <button className="report-unlock-btn" onClick={handleTier3PhotoSubmit} disabled={tier3PhotoUploading}>
+                                {tier3PhotoUploading ? '上传中…' : '开始分析'}
+                              </button>
+                              <button className="report-redo-btn" onClick={() => { setTier3Photo(null); setTier3PhotoError(null); }}>重新选择</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="tier2-photo-actions">
+                            {typeof navigator !== 'undefined' && navigator.userAgent?.match(/(iPhone|iPad|iPod|Android)/i) ? (
+                              <>
+                                <button className="capture-action-btn capture-camera-btn" onClick={handleTier3PhotoPickCamera}>
+                                  <span className="capture-icon">📷</span> 拍照
+                                </button>
+                                <button className="capture-action-btn capture-gallery-btn" onClick={handleTier3PhotoPickGallery}>
+                                  <span className="capture-icon">🖼</span> 从相册选择
+                                </button>
+                              </>
+                            ) : (
+                              <button className="capture-action-btn capture-web-btn" onClick={() => tier3PhotoInputRef.current?.click()}>
+                                <span className="capture-icon">📁</span> 选择照片
+                              </button>
+                            )}
+                            <input ref={tier3PhotoInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleTier3PhotoInputChange} />
+                          </div>
+                        )}
+                        {(tier3PhotoError || tier3Error) && <p className="report-q-error">{tier3PhotoError || tier3Error}</p>}
+                      </div>
+                    );
+                  }
                   const q = TIER3_QUESTIONS[tier3CurrentQuestionIndex];
                   if (!q) return null;
                   const options = (tier3QuestionnaireOptions && tier3QuestionnaireOptions[q.key]) || TIER3_FALLBACK_OPTIONS[q.key] || [];

@@ -1,4 +1,4 @@
-name = "beauty-api-pages"
+﻿name = "beauty-api-pages"
 pages_build_output_dir = "dist"
 compatibility_date = "2025-01-01"
 

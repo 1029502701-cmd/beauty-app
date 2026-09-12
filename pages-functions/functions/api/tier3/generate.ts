@@ -33,13 +33,19 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
 
   let tier1ReportId: string | undefined;
   let questionnaireAnswers: Record<string, string> | undefined;
+  let fromPoints: boolean | undefined;
+  let facePhotoKey: string | undefined;
   try {
     const body = (await request.json()) as {
       tier1ReportId?: string;
       questionnaireAnswers?: Record<string, string>;
+      fromPoints?: boolean;
+      facePhotoKey?: string;
     };
     tier1ReportId = body.tier1ReportId;
     questionnaireAnswers = body.questionnaireAnswers;
+    fromPoints = body.fromPoints;
+    facePhotoKey = body.facePhotoKey;
   } catch {
     return new Response(
       JSON.stringify({ error: "请求体不是合法 JSON" }),
@@ -55,18 +61,23 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
     );
   }
 
-  // 1. 检查是否有可用 token（预检；真正的消耗在步骤 4 的原子认领完成，先到先得）
-  const tokenRow = await env.DB.prepare(
-    `SELECT id FROM tokens WHERE user_id = ? AND status = 'unused' ORDER BY created_at LIMIT 1`
-  )
-    .bind(user.userId)
-    .first<{ id: string }>();
-
-  if (!tokenRow) {
-    return new Response(
-      JSON.stringify({ error: "no_token" }),
-      { status: 403, headers: { "Content-Type": "application/json" } }
-    );
+  // 1. 检查生成权限来源（两条并列路径，互不依赖）：
+  //    路径 A：积分抵扣成功（fromPoints，前端已通过 /api/points/consume 扣积分）
+  //    路径 B：用户拥有可用 token（预检；真正消耗在步骤 4 的原子认领完成，先到先得）
+  const isPointsUnlock = fromPoints === true;
+  let tokenRow: { id: string } | null = null;
+  if (!isPointsUnlock) {
+    tokenRow = await env.DB.prepare(
+      `SELECT id FROM tokens WHERE user_id = ? AND status = 'unused' ORDER BY created_at LIMIT 1`
+    )
+      .bind(user.userId)
+      .first<{ id: string }>();
+    if (!tokenRow) {
+      return new Response(
+        JSON.stringify({ error: "no_token", message: "无可用 token，请使用积分或兑换码/购买解锁" }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      );
+    }
   }
 
   // 2. 查 tier1 报告数据（可选：无初识报告时使用空数据兜底）
@@ -100,23 +111,26 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
     );
   }
 
-  // 4. 原子认领 token：仅当它仍为 unused 时才置为 used（防止并发双击时同一个
-  //    token 被两个请求同时选中、一份钱生成两份报告；抢到的请求正常写报告，
-  //    抢不到的返回 403 no_token，不写报告）
+  // 4. 原子认领 token（仅 token 路径）：仅当它仍为 unused 时才置为 used（防止并发双击时
+  //    同一个 token 被两个请求同时选中、一份钱生成两份报告；抢到的请求正常写报告，
+  //    抢不到的返回 403 no_token，不写报告）。积分路径不消耗 token，tokenRow 为 null。
   const now = Math.floor(Date.now() / 1000);
-  const claim = await env.DB.prepare(
-    `UPDATE tokens SET status = 'used', used_at = ? WHERE id = ? AND status = 'unused'`
-  )
-    .bind(now, tokenRow.id)
-    .run();
-  if (!claim.meta?.changes) {
-    return new Response(
-      JSON.stringify({ error: "no_token", message: "token 刚被另一请求消耗，请重新生成" }),
-      { status: 403, headers: { "Content-Type": "application/json" } }
-    );
+  if (tokenRow) {
+    const claim = await env.DB.prepare(
+      `UPDATE tokens SET status = 'used', used_at = ? WHERE id = ? AND status = 'unused'`
+    )
+      .bind(now, tokenRow.id)
+      .run();
+    if (!claim.meta?.changes) {
+      return new Response(
+        JSON.stringify({ error: "no_token", message: "token 刚被另一请求消耗，请重新生成" }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      );
+    }
   }
 
   // 5. 写入 reports_tier3（纯新增：不删除旧记录，旧报告由 30 天 expire_at 机制自然清理）
+  //    token_id 可空：积分解锁的报告不关联 token；token 解锁的报告关联已消耗的 token。
   const reportId = generateId();
   const expireAt = now + 30 * 24 * 60 * 60;
   const scenario = questionnaireAnswers.scenario ?? "日常通勤";
@@ -128,7 +142,7 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
     .bind(
       reportId,
       user.userId,
-      tokenRow.id,
+      tokenRow ? tokenRow.id : null,
       scenario,
       JSON.stringify(questionnaireAnswers),
       JSON.stringify(reportContent),
@@ -138,7 +152,7 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
     .run();
 
   return new Response(
-    JSON.stringify({ id: reportId, content: reportContent, expireAt }),
+    JSON.stringify({ id: reportId, content: reportContent, expireAt, facePhotoKey }),
     { headers: { "Content-Type": "application/json" } }
   );
 };

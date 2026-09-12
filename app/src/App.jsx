@@ -77,6 +77,9 @@ function Router() {
       tokenProcessRef.current = true;
       console.log('[DIAG] T4 token-effect FOUND token, setting ref=true');
       const redirectFrom = new URL(window.location.href).searchParams.get('redirect');
+      // 从回调 URL 中提取 invite 参数，供登录页使用
+      const inviteCode = new URL(window.location.href).searchParams.get('invite');
+      if (inviteCode) sessionStorage.setItem('invite_code', inviteCode);
       const url = new URL(window.location.href);
       url.searchParams.delete('token');
       window.history.replaceState(null, '', url.toString());

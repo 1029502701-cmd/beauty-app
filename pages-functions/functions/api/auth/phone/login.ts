@@ -43,7 +43,8 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
 
   // 4. 签发 session
   const sessionId = generateId();
-  await env.SESSION_KV.put("session:" + sessionId, JSON.stringify({ userId, expiresAt: now + 7 * 24 * 60 * 60 }), { expirationTtl: 7 * 24 * 60 * 60 });
+  const inviteCode = (body as any).inviteCode || null;
+  await env.SESSION_KV.put("session:" + sessionId, JSON.stringify({ userId, expiresAt: now + 7 * 24 * 60 * 60, invite_code: inviteCode }), { expirationTtl: 7 * 24 * 60 * 60 });
 
   // 5. 清除验证码和尝试计数
   await env.SESSION_KV.delete("sms_code:" + phone);

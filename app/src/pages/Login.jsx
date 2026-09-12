@@ -80,7 +80,9 @@ export default function Login({ onLogin }) {
     if (!isValidAccount(account)) { setError('请输入正确的手机号或邮箱'); return; }
     setLoading(true);
     try {
-      const url = '/api/auth/auto-login?account=' + encodeURIComponent(account);
+      // 从 sessionStorage 读取邀请码（来自 App.jsx 回调 URL 提取）
+      const inviteCode = sessionStorage.getItem('invite_code') || '';
+      const url = '/api/auth/auto-login?account=' + encodeURIComponent(account) + (inviteCode ? '&invite=' + encodeURIComponent(inviteCode) : '');
       const finalUrl = password ? url + '&password=' + encodeURIComponent(password) : url;
       const res = await fetch(finalUrl);
       const data = await res.json();
@@ -116,9 +118,11 @@ export default function Login({ onLogin }) {
     if (!code || code.length !== 6) { setError('请输入6位验证码'); return; }
     setLoading(true);
     try {
+      // 从 sessionStorage 读取邀请码
+      const inviteCode = sessionStorage.getItem('invite_code') || '';
       const res = await fetch('/api/auth/phone/login', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, code }),
+        body: JSON.stringify({ phone, code, inviteCode }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '登录失败');
