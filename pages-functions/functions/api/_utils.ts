@@ -176,7 +176,13 @@ export async function resolveUserPhone(
     if (payload?.phone) return String(payload.phone);
   }
 
-  // 2) 本端 D1 users 表
+  // 2) 本端 user_phone_map（登录时落库，最权威）
+  const mapRow = await env.DB
+    .prepare("SELECT phone FROM user_phone_map WHERE user_id = ? LIMIT 1")
+    .bind(user.userId)
+    .first<{ phone: string | null }>();
+  if (mapRow?.phone) return String(mapRow.phone);
+  // 2b) 兜底：本端 users 表的 phone 列
   const row = await env.DB
     .prepare("SELECT phone FROM users WHERE id = ? LIMIT 1")
     .bind(user.userId)

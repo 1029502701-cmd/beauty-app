@@ -6,7 +6,7 @@
 import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
 import { makeOptionsHandler } from "../../_utils";
 
-const AUTH_CENTER_URL = "https://auth.meijian.top";
+const AUTH_CENTER_URL = "https://chat-ai-auth.y512149214.workers.dev";
 
 export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
   const { request } = context;
@@ -59,6 +59,25 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
         JSON.stringify({ error: data.error || "登录失败", status: res.status }),
         { status: res.status, headers: { "Content-Type": "application/json" } }
       );
+    }
+    // 中枢返回 { token, isNew }；解析 JWT 里的 user_id，把 user_id ↔ 手机号 写进本端 user_phone_map，
+    // 供 resolveUserPhone 反查手机号（中枢签发的 JWT 不含 phone claim，本端 D1 也未必有该 user_id）。
+    try {
+      const tokenStr = String(data.token || "");
+      const b64 = tokenStr.split(".")[1];
+      if (b64) {
+        const payload = JSON.parse(Buffer.from(b64.replace(/-/g,"+").replace(/_/g,"/")).toString("base64"));
+        const uid = payload.user_id;
+        if (uid && account && /^1[3-9]\d{9}$/.test(account)) {
+          const now = Math.floor(Date.now() / 1000);
+          await context.env.DB.prepare(
+            "INSERT INTO user_phone_map (user_id, phone, created_at, updated_at) VALUES (?, ?, ?, ?)\n"+
+            "ON CONFLICT(user_id) DO UPDATE SET phone = excluded.phone, updated_at = excluded.updated_at"
+          ).bind(uid, account, now, now).run();
+        }
+      }
+    } catch (e) {
+      console.warn("[login-or-register] write user_phone_map failed:", e);
     }
     // 中枢返回 { token, isNew }；原样透传给前端作为全局身份
     return new Response(
