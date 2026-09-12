@@ -149,13 +149,11 @@ export default function Home({ onLogout }) {
         <div className="home-invite-card">
           <div className="home-invite-header">
             <span className="home-invite-title">🎁 邀请好友</span>
+            {pointsBalance !== null && (
+              <span className="home-invite-points">积分：{pointsBalance}分</span>
+            )}
             <span className="home-invite-count">已成功邀请 {invitedCount ?? 0} 人</span>
           </div>
-          {pointsBalance !== null && (
-            <div className="home-points-inline">
-              <span>积分：{pointsBalance}分</span>
-            </div>
-          )}
           <div className="home-invite-code-row">
             <code className="home-invite-code">{inviteCode}</code>
             <button className="home-invite-copy-btn" onClick={handleCopyInvite}>
