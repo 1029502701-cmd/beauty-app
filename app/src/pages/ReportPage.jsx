@@ -249,6 +249,17 @@ function Tier3Report({ content, onRefresh, onShare, shareLoading, shareDone, pho
         </div>
       </div>
 
+      {/* AI 妆效图模块（后台 tier3_show_ai_image 可隐藏） */}
+      {showAiImage && aiImageUrl && (
+        <div className="t3-card t3-card--ai-image">
+          <h2 className="t3-card-title">🪞 AI 妆效参考</h2>
+          <div className="t3-ai-image-wrap">
+            <img className="t3-ai-image" src={aiImageUrl} alt="AI 妆效参考图" />
+            <span className="t3-ai-image-hint">基于你的照片 + 本报告妆容风格生成，仅供参考</span>
+          </div>
+        </div>
+      )}
+
       {/* 风格与场景融合 */}
       {styleNote && (
         <div className="t3-card t3-card--style">
@@ -432,6 +443,14 @@ export default function ReportPage() {
   const [tier3Photo, setTier3Photo] = useState(null);
   const [tier3PhotoKey, setTier3PhotoKey] = useState(null);
   const [tier3ContentPhotoUrl, setTier3ContentPhotoUrl] = useState(null); // 本次刚生成报告对应的照片预览 URL
+  const [tier3AiImageUrl, setTier3AiImageUrl] = useState(null); // 本次报告 AI 妆效图
+  const [tier3ShowAiImage, setTier3ShowAiImage] = useState(true); // 后台开关：是否显示 tier3 AI 妆效图模块
+  useEffect(() => {
+    fetch(BASE + '/admin/config').then(r=>r.json()).then(d=>{
+      const cfg = (d.configs||[]).find(c=>c.key==='tier3_show_ai_image');
+      setTier3ShowAiImage(cfg ? cfg.value !== 'false' : true);
+    }).catch(()=>{});
+  }, []);
   const [tier3PhotoUploading, setTier3PhotoUploading] = useState(false);
   const [tier3PhotoError, setTier3PhotoError] = useState(null);
   const tier3PhotoInputRef = useRef(null);
@@ -742,9 +761,10 @@ const tier3PhotoKeyLiveRef = useRef(null);
       const res = await fetch(BASE + '/tier3/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ tier1ReportId: reportId, questionnaireAnswers: tier3Answers }),
+        body: JSON.stringify({ tier1ReportId: reportId, questionnaireAnswers: tier3Answers, facePhotoKey: tier3PhotoKey || undefined }),
       });
       const data = await res.json();
+      if (res.ok && data.aiImageUrl) setTier3AiImageUrl(BASE + '/r2-proxy?key=' + encodeURIComponent(data.aiImageUrl) + '&bucket=temp');
       if (!res.ok) {
         if (res.status === 403 && data.error === 'no_token') {
           setTier3TokenStatus({ hasToken: false, count: 0 });
@@ -1431,6 +1451,8 @@ const tier3PhotoKeyLiveRef = useRef(null);
             ) : tier3Content ? (
               <Tier3Report
               photoUrl={tier3ContentPhotoUrl || (myTier3 && myTier3.photoUrl)}
+              aiImageUrl={tier3AiImageUrl}
+              showAiImage={tier3ShowAiImage}
               content={{ ...tier3Content, _scenario: tier3Answers.scenario || (myTier3 && myTier3.scenario) || '今日妆容' }}
               onRefresh={handleTier3Refresh}
               onShare={handleShareTier3}

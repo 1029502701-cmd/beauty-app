@@ -30,14 +30,23 @@ export const GET: FrameworkCallbackOptions["GET"] = async (context) => {
   }
 
   // 该用户的全部专属报告档案（含已过期，前端按需标记过期状态）
-  const rows = await env.DB.prepare(
-    `SELECT id, scenario, face_photo_key, created_at, expire_at
-     FROM reports_tier3
-     WHERE user_id = ?
-     ORDER BY created_at DESC`
-  )
-    .bind(user.userId)
-    .all<any>();
+  let rows;
+  try {
+    rows = await env.DB.prepare(
+      `SELECT id, scenario, face_photo_key, ai_image_url, created_at, expire_at
+       FROM reports_tier3
+       WHERE user_id = ?
+       ORDER BY created_at DESC`
+    ).bind(user.userId).all<any>();
+  } catch (e) {
+    console.warn("[tier3/content] ai_image_url missing, legacy select:", e);
+    rows = await env.DB.prepare(
+      `SELECT id, scenario, face_photo_key, created_at, expire_at
+       FROM reports_tier3
+       WHERE user_id = ?
+       ORDER BY created_at DESC`
+    ).bind(user.userId).all<any>();
+  }
 
   const reports = (rows.results || []).map((r) => ({
     id: r.id,
@@ -45,6 +54,9 @@ export const GET: FrameworkCallbackOptions["GET"] = async (context) => {
     style: t1Style || r.scenario || null,
     photoUrl: r.face_photo_key
       ? "/api/r2-proxy?key=" + encodeURIComponent(r.face_photo_key) + "&bucket=temp"
+      : null,
+    aiImageUrl: r.ai_image_url
+      ? "/api/r2-proxy?key=" + encodeURIComponent(r.ai_image_url) + "&bucket=temp"
       : null,
     createdAt: r.created_at ?? null,
     expireAt: r.expire_at ?? null,

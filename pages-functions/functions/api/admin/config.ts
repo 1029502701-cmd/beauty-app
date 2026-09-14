@@ -37,6 +37,14 @@ export const GET: FrameworkCallbackOptions['GET'] = async (context) => {
     `INSERT OR IGNORE INTO app_config (key, value, updated_at) VALUES ('tier2_hook_text', '解锁专属报告，搭配更多场景', ?)`
   ).bind(now).run();
 
+  // 模型配置（AI 供应商切换）
+  await env.DB.prepare(`INSERT OR IGNORE INTO app_config (key, value, updated_at) VALUES ('text_model_provider', 'deepseek', ?)`).bind(now).run();
+  await env.DB.prepare(`INSERT OR IGNORE INTO app_config (key, value, updated_at) VALUES ('text_model_name', '', ?)`).bind(now).run();
+  await env.DB.prepare(`INSERT OR IGNORE INTO app_config (key, value, updated_at) VALUES ('image_model_provider', 'dashscope', ?)`
+  ).bind(now).run();
+  await env.DB.prepare(`INSERT OR IGNORE INTO app_config (key, value, updated_at) VALUES ('tier3_show_ai_image', 'true', ?)`
+  ).bind(now).run();
+
   const rows = await env.DB.prepare(
     'SELECT key, value, updated_at FROM app_config ORDER BY key'
   ).all<any>();

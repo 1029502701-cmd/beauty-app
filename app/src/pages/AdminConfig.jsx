@@ -13,6 +13,11 @@ const CONFIG_DEFS = [
   { key: "tier2_show_ai_image", label: "AI效果图模块显示", desc: "控制Tier2报告中AI效果图模块是否显示（关闭后可临时隐藏不稳定的AI图功能）", type: "toggle" },
   { key: "tier2_btn_color", label: "按钮底色", desc: "Tier2报告页按钮的默认底色（前端会实时读取）", type: "color" },
   { key: "tier2_hook_text", label: "Tier3钩子文案", desc: "Tier2报告底部的推广文案，居中对齐展示", type: "text" },
+  // 模型配置（AI 供应商切换）
+  { key: "text_model_provider", label: "文本模型供应商", desc: "Tier2 报告与商品推荐理由使用的 LLM：deepseek 或 agnes", type: "select", options: ["deepseek", "agnes"] },
+  { key: "text_model_name", label: "文本模型名称（可选）", desc: "覆盖默认模型名；留空用供应商默认（deepseek-chat / agnes-3.0-flash）" },
+  { key: "image_model_provider", label: "图像模型供应商", desc: "AI 妆效图生成：dashscope（wanx2.1）或 agnes（agnes-image-2.5-flash），agnes 失败自动回退 dashscope", type: "select", options: ["dashscope", "agnes"] },
+  { key: "tier3_show_ai_image", label: "专属报告AI妆效图显示", desc: "控制专属（tier3）报告中是否插入/显示 AI 妆效图模块（关闭后前端隐藏该模块）", type: "toggle" },
 ];
 
 const CONTACT_KEYS = ["influencer_contact_info", "feature_request_contact"];
@@ -53,7 +58,7 @@ export default function AdminConfig() {
     if (cfg.key === "tier3_token_price" && val) {
       val = (parseInt(val, 10) / 100).toFixed(2);
     }
-    if (cfg.key === "sms_login_enabled" || cfg.key === "tier2_show_ai_image") val = val === "true";
+    if (cfg.key === "sms_login_enabled" || cfg.key === "tier2_show_ai_image" || cfg.key === "tier3_show_ai_image") val = val === "true";
     setEditValue(val);
     if (CONTACT_KEYS.includes(cfg.key)) {
       setRows(parseContactRows(val));
@@ -81,8 +86,10 @@ export default function AdminConfig() {
         saveVal = JSON.stringify(filtered.map(r => ({ platform: r.platform.trim(), account: r.account.trim() })));
       } else if (editing === "tier3_token_price") {
         saveVal = String(Math.round(parseFloat(editValue) * 100));
-      } else if (editing === "sms_login_enabled" || editing === "tier2_show_ai_image") {
+      } else if (editing === "sms_login_enabled" || editing === "tier2_show_ai_image" || editing === "tier3_show_ai_image") {
         saveVal = editValue === true ? "true" : "false";
+      } else if (isSelectKey(editing)) {
+        saveVal = String(editValue);
       } else {
         saveVal = editValue;
       }
@@ -110,6 +117,10 @@ export default function AdminConfig() {
     const def = getDefByKey(key);
     return def?.type === "text";
   };
+  const isSelectKey = (key) => {
+    const def = getDefByKey(key);
+    return def?.type === "select";
+  };
 
   return (
     <div className="admin-config-list">
@@ -121,6 +132,7 @@ export default function AdminConfig() {
         const isToggle = isToggleKey(def.key);
         const isColor = isColorKey(def.key);
         const isText = isTextKey(def.key);
+        const isSelect = isSelectKey(def.key);
         return (
           <div key={def.key} className="admin-config-item">
             <div className="admin-config-label-row">
@@ -177,6 +189,27 @@ export default function AdminConfig() {
                         placeholder="#000000"
                       />
                     </div>
+                  ) : isSelect ? (
+                    <select
+                      className="admin-config-input"
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                    >
+                      {(getDefByKey(editing)?.options || []).map((o) => (
+                        <option key={o} value={o}>{o}</option>
+                      ))}
+                    </select>
+                  ) : isSelect ? (
+                    <select
+                      className="admin-config-input"
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      style={{ flex: 1 }}
+                    >
+                      {(getDefByKey(editing)?.options || []).map((o) => (
+                        <option key={o} value={o}>{o}</option>
+                      ))}
+                    </select>
                   ) : (
                     <>
                       <input
@@ -210,6 +243,10 @@ export default function AdminConfig() {
                     <div className="admin-color-preview" style={{ background: cfg?.value || "#000000" }}>
                       <span>{cfg?.value || "#000000"}</span>
                     </div>
+                  ) : isSelect ? (
+                    <span style={{ fontSize: "14px", color: "#374151", flex: 1 }}>
+                      {cfg?.value || "(未设置)"}
+                    </span>
                   ) : (
                     <span style={{ fontSize: "14px", color: "#374151", flex: 1, wordBreak: "break-all" }}>
                       {cfg?.value

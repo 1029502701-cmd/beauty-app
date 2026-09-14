@@ -20,11 +20,17 @@ export const GET: FrameworkCallbackOptions["GET"] = async (context) => {
       headers: { "Content-Type": "application/json" },
     });
   }
-  const row = await env.DB.prepare(
-    "SELECT id, scenario, content, created_at, expire_at, face_photo_key FROM reports_tier3 WHERE id = ? AND user_id = ? LIMIT 1"
-  )
-    .bind(id, user.userId)
-    .first<any>();
+  let row: any;
+  try {
+    row = await env.DB.prepare(
+      "SELECT id, scenario, content, created_at, expire_at, face_photo_key, ai_image_url FROM reports_tier3 WHERE id = ? AND user_id = ? LIMIT 1"
+    ).bind(id, user.userId).first<any>();
+  } catch (e) {
+    console.warn("[tier3/report-id] ai_image_url missing, legacy select:", e);
+    row = await env.DB.prepare(
+      "SELECT id, scenario, content, created_at, expire_at, face_photo_key FROM reports_tier3 WHERE id = ? AND user_id = ? LIMIT 1"
+    ).bind(id, user.userId).first<any>();
+  }
   if (!row) {
     return new Response(JSON.stringify({ error: "报告不存在" }), {
       status: 404,
@@ -48,6 +54,9 @@ export const GET: FrameworkCallbackOptions["GET"] = async (context) => {
       expired: typeof row.expire_at === "number" ? row.expire_at <= now : false,
       photoUrl: row.face_photo_key
         ? "/api/r2-proxy?key=" + encodeURIComponent(row.face_photo_key) + "&bucket=temp"
+        : null,
+      aiImageUrl: row.ai_image_url
+        ? "/api/r2-proxy?key=" + encodeURIComponent(row.ai_image_url) + "&bucket=temp"
         : null,
     }),
     { headers: { "Content-Type": "application/json" } }

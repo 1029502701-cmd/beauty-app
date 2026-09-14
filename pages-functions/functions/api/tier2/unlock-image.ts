@@ -10,6 +10,8 @@
 import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
 import { requireAuth, beijingDate, generateId } from "../../_utils";
 import { resizeBase64IfNeeded } from "../../_image_utils";
+// 每日 AI 妆效图次数上限（原由 MAX_DAILY_IMAGES 常量提供，此处本地定义）
+const MAX_DAILY_IMAGES = 3;
 import type { Ctx } from "../../_utils";
 
 // POST /api/tier2/unlock-image
@@ -38,13 +40,13 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
   let tier2Row: any;
   try {
     tier2Row = await env.DB.prepare(
-      `SELECT id, user_id, share_token, face_photo_key FROM reports_tier2 WHERE id = ? LIMIT 1`
+      `SELECT id, user_id, share_token, face_photo_key, generation_status FROM reports_tier2 WHERE id = ? LIMIT 1`
     ).bind(reportId).first<any>();
   } catch (e) {
     // face_photo_key 列在 0022 迁移中新增；未迁移环境回退
     console.warn("[tier2/unlock-image] face_photo_key missing, legacy select:", e);
     tier2Row = await env.DB.prepare(
-      `SELECT id, user_id, share_token FROM reports_tier2 WHERE id = ? LIMIT 1`
+      `SELECT id, user_id, share_token, generation_status FROM reports_tier2 WHERE id = ? LIMIT 1`
     ).bind(reportId).first<any>();
   }
 
@@ -143,8 +145,23 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
     // 忽略
   }
 
-  // 6. 调用 DashScope wanx2.1-imageedit
-  const generatedImageUrl = await generateImageWithDashScope(imageDataUrl, styleDesc, env);
+  // 6. 生成 AI 妆效图：按后台 image_model_provider 配置选择 Agnes 图生图或 DashScope wanx2.1
+  let imageProvider = "dashscope";
+  try {
+    const provRow = await env.DB.prepare("SELECT value FROM app_config WHERE key = 'image_model_provider' LIMIT 1").first();
+    if (provRow?.value?.trim()) imageProvider = provRow.value.trim().toLowerCase();
+  } catch (e) { console.warn("[tier2/unlock-image] read image_model_provider failed:", e); }
+
+  let generatedImageUrl: string | null = null;
+  if (imageProvider === "agnes") {
+    generatedImageUrl = await generateImageWithAgnes(imageDataUrl, styleDesc, env);
+    if (!generatedImageUrl) {
+      console.warn("[tier2/unlock-image] Agnes failed, falling back to DashScope");
+    }
+  }
+  if (!generatedImageUrl) {
+    generatedImageUrl = await generateImageWithDashScope(imageDataUrl, styleDesc, env);
+  }
   if (!generatedImageUrl) {
     return new Response(
       JSON.stringify({ unlocked: false, reason: "ai_generation_failed", retryable: true }),
@@ -333,3 +350,48 @@ export const onRequestPost = async (...args) => {
   return (POST as any)(...args);
 };
 
+
+
+/**
+ * 调用 Agnes Image 2.5 Flash 图生图（OpenAI 兼容 /v1/images/generations）
+ * 参考图以裸 Base64 传入 extra_body.image；输出 URL
+ */
+async function generateImageWithAgnes(imageDataUrl: string, styleDesc: string, env: Ctx["env"]): Promise<string | null> {
+  const apiKey = env.AGNES_API_KEY;
+  if (!apiKey) {
+    console.warn("[tier2/unlock-image] AGNES_API_KEY not configured");
+    return null;
+  }
+  // 从 data URL 提取裸 base64
+  const commaIdx = imageDataUrl.indexOf(",");
+  const rawB64 = commaIdx >= 0 ? imageDataUrl.slice(commaIdx + 1) : imageDataUrl;
+  const prompt =
+    "为这位女性添加" + styleDesc + "的彩妆妆效：自然通透底妆、柔和眼影、红润唇色、淡淡腮红。" +
+    "要求真实自然的妆面效果，保持原有肤色与肤质。灯光必须是自然暖色柔光（暖白/日光），绝对禁止蓝色、紫色、青色等冷色调或霓虹灯光。" +
+    "不要霓虹色、不要蓝色/紫色灯光、不要夸张滤镜、不要改变服装与背景。" +
+    "保留原始构图、面部特征、相机角度、发型与背景不变，只改变妆容。写实摄影风格，高清。";
+  try {
+    const resp = await fetch("https://apihub.agnes-ai.com/v1/images/generations", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "agnes-image-2.5-flash",
+        prompt,
+        size: "1K",
+        ratio: "3:4",
+        extra_body: { image: [rawB64], response_format: "url" },
+      }),
+      signal: AbortSignal.timeout(90000),
+    });
+    if (!resp.ok) {
+      const eb = await resp.text().catch(() => "");
+      console.error("[tier2/unlock-image] Agnes error " + resp.status + ": " + eb.slice(0, 300));
+      return null;
+    }
+    const data: any = await resp.json();
+    return data?.data?.[0]?.url || null;
+  } catch (e) {
+    console.error("[tier2/unlock-image] Agnes exception:", e);
+    return null;
+  }
+}

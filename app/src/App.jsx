@@ -51,7 +51,6 @@ function Router() {
   };
 
   const handleLogout = async () => {
-    console.log('[DIAG] handleLogout START');
     await logout();
     sessionStorage.removeItem('auth_redirect_from');
     tokenProcessRef.current = false;
@@ -60,65 +59,65 @@ function Router() {
     const target = '/home';
     setPage(target);
     window.history.replaceState(null, '', target);
-    console.log('[DIAG] handleLogout DONE tokenProcessRef=', tokenProcessRef.current);
   };
 
   // Handle token returned from auth.meijian.top
   // MUST run before the auth-effect below so redirect param is read before token is stored
   useEffect(() => {
-    console.log('[DIAG] T1 token-effect fired', { tokenProcessRef: tokenProcessRef.current, loading, hasToken: !!token, callbackTokenFromRef: callbackTokenRef.current });
     if (tokenProcessRef.current || loading) {
-      console.log('[DIAG] T2 token-effect EARLY RETURN tokenProcessRef=', tokenProcessRef.current, 'loading=', loading);
       return;
     }
     const callbackToken = callbackTokenRef.current;
-    console.log('[DIAG] T3 token-effect URL search', { token, callbackTokenFromRef: callbackToken });
     if (callbackToken) {
       tokenProcessRef.current = true;
-      console.log('[DIAG] T4 token-effect FOUND token, setting ref=true');
       const redirectFrom = new URL(window.location.href).searchParams.get('redirect');
       // 从回调 URL 中提取 invite 参数，供登录页使用
       const inviteCode = new URL(window.location.href).searchParams.get('invite');
       if (inviteCode) sessionStorage.setItem('invite_code', inviteCode);
-      const url = new URL(window.location.href);
-      url.searchParams.delete('token');
-      window.history.replaceState(null, '', url.toString());
       login(callbackToken);
-      const target = redirectFrom ? decodeURIComponent(redirectFrom) : '/home';
-      setPage(target === '/home' ? '' : target);
-      window.history.replaceState(null, '', target === '/home' ? '/' : target);
-      console.log('[DIAG] T5 token-effect processed token target=', target);
+// Parse the redirect param from auth-center bounce:
+//  - same-origin redirect: use its pathname as the target page
+//  - cross-origin redirect: fall back to /home (avoids replaceState DOMException)
+let targetPath = '/home';
+if (redirectFrom) {
+  try {
+    const u = new URL(redirectFrom);
+    if (u.origin === window.location.origin) targetPath = u.pathname || '/';
+  } catch (_) { /* ignore */ }
+}
+// Clean the current URL query string (keep pathname)
+const cleanUrl = new URL(window.location.href);
+cleanUrl.search = '';
+window.history.replaceState(null, '', cleanUrl.pathname + cleanUrl.hash);
+const normalized = (targetPath === '/' || targetPath === '/home') ? '' : targetPath;
+setPage(normalized);
+if (normalized) window.history.replaceState(null, '', normalized);
     }
   }, [loading, login]);
 
   useEffect(() => {
-    console.log('[DIAG] A1 auth-guard effect', { token, loading, page, tokenProcessRef: tokenProcessRef.current, effectivePath: window.location.pathname === '/' ? '' : window.location.pathname });
     if (!loading) {
       const path = window.location.pathname;
       const effectivePath = path === '/' ? '' : path;
       // Unauthenticated: redirect to unified login (auth.meijian.top)
       if (!token && callbackTokenRef.current === null && effectivePath !== '/login' && effectivePath !== '/set-password' && effectivePath !== '/admin/login' && !effectivePath.startsWith('/admin')) {
-        console.log('[DIAG] A2 auth-guard REDIRECT to auth (no token, path=', effectivePath, ')');
         const target = encodeURIComponent(window.location.href || '/');
         const useLocalLogin = new URL(window.location.href).searchParams.get('local') === '1';
         if (!useLocalLogin) {
           window.location.href = 'https://auth.meijian.top?redirect=' + target;
         }
       } else if (!tokenProcessRef.current && token && (effectivePath === '' || effectivePath === '/')) {
-        console.log('[DIAG] A3 auth-guard redirect root to /home');
         setPage('/home');
         window.history.replaceState(null, '', '/home');
       }
       else if (token && effectivePath !== '/login' && effectivePath !== page && !loginRedirectTargetRef.current) {
         // Sync URL on direct navigation while authenticated (e.g. refresh)
-        console.log('[DIAG] A4 auth-guard sync page', { effectivePath, page });
         setPage(effectivePath);
       }
-      else if (!token && effectivePath === '/login') {
+      else if (!token && callbackTokenRef.current === null && effectivePath === '/login') {
         const useLocalLogin = new URL(window.location.href).searchParams.get('local') === '1';
         if (!useLocalLogin) {
         // Use the originally-intended URL saved by RequireAuth BEFORE it navigated to /login
-        console.log('[DIAG] A5 auth-guard at /login no token');
         const storedRedirect = sessionStorage.getItem('auth_redirect_from');
         const target = storedRedirect
           ? encodeURIComponent(storedRedirect)
@@ -127,7 +126,6 @@ function Router() {
         }
       }
       else {
-        console.log('[DIAG] A6 auth-guard NO ACTION tokenProcessRef=', tokenProcessRef.current);
       }
     }
   }, [token, loading]);

@@ -11,7 +11,7 @@
  * 阶段序列：vision → analysis → step1..step6 → summary → enrich → reasons(→ready)
  */
 import type { Ctx } from "./_utils";
-import { parseDeepseekJson, generateProductReasons, beijingDate } from "./_utils";
+import { parseDeepseekJson, generateProductReasonsFlexible, beijingDate, getChatProviderConfig, callChatProvider } from "./_utils";
 import { findProductByKeyword, findCuratedProduct } from "./_taobao";
 
 export const TIER2_STEP_DEFS = [
@@ -274,7 +274,7 @@ async function runVisionStage(env: Ctx["env"], prog: Tier2Progress): Promise<boo
 
 async function runAnalysisStage(env: Ctx["env"], prog: Tier2Progress): Promise<boolean> {
   const base = defaultFaceAnalysis();
-  const parsed = await deepseekJsonCall(env, buildAnalysisPrompt(prog.textDesc || ""), 500, 15000, "[tier2/stages:analysis]");
+  const parsed = await flexibleJsonCall(env, buildAnalysisPrompt(prog.textDesc || ""), 500, 15000, "[tier2/stages:analysis]");
   const fa: Record<string, unknown> = { ...base };
   if (parsed) {
     for (const k of ["faceShape", "skinType", "eyebrowShape", "eyeShape", "threeFiveRatio", "symmetry", "personaTags", "highlight", "suggestions"]) {
@@ -290,8 +290,8 @@ async function runStepStage(env: Ctx["env"], prog: Tier2Progress, idx: number): 
   const def = TIER2_STEP_DEFS[idx];
   prog.steps = prog.steps || {};
   let data: Record<string, unknown> | null = null;
-  if (env.DEEPSEEK_API_KEY) {
-    data = await deepseekJsonCall(env, buildStepPrompt(def, prog.faceAnalysis || defaultFaceAnalysis()), 700, 25000, `[tier2/stages:step${def.step}]`);
+  if (env.DEEPSEEK_API_KEY || env.AGNES_API_KEY) {
+    data = await flexibleJsonCall(env, buildStepPrompt(def, prog.faceAnalysis || defaultFaceAnalysis()), 700, 25000, `[tier2/stages:step${def.step}]`);
   }
   prog.steps[def.key] = data && Array.isArray(data.products) ? data : stepFallback(def, prog.faceAnalysis || defaultFaceAnalysis());
   prog.stage = idx === TIER2_STEP_DEFS.length - 1 ? "summary" : `step${idx + 2}`;
@@ -301,8 +301,8 @@ async function runStepStage(env: Ctx["env"], prog: Tier2Progress, idx: number): 
 async function runSummaryStage(env: Ctx["env"], prog: Tier2Progress): Promise<boolean> {
   const fa = prog.faceAnalysis || defaultFaceAnalysis();
   let s: Record<string, unknown> | null = null;
-  if (env.DEEPSEEK_API_KEY) {
-    s = await deepseekJsonCall(env, buildSummaryPrompt(fa), 400, 15000, "[tier2/stages:summary]");
+  if (env.DEEPSEEK_API_KEY || env.AGNES_API_KEY) {
+    s = await flexibleJsonCall(env, buildSummaryPrompt(fa), 400, 15000, "[tier2/stages:summary]");
   }
   prog.summary = {
     coreConclusion: str(s?.coreConclusion) || str(fa.highlight) || "你的专属妆容风格方案已生成",
@@ -371,7 +371,7 @@ async function runReasonsStage(env: Ctx["env"], prog: Tier2Progress): Promise<bo
   }
   if (targets.length > 0 && env.DEEPSEEK_API_KEY) {
     const reasons = (await withTimeout(
-      generateProductReasons(targets, (prog.faceAnalysis || {}) as Record<string, unknown>, env),
+      generateProductReasonsFlexible(targets, (prog.faceAnalysis || {}) as Record<string, unknown>, env),
       15000
     )) || {};
     slots.forEach((s, i) => {
@@ -516,4 +516,24 @@ export async function advanceTier2Stage(
     return { generationStatus: "processing", advanced: false };
   }
   return { generationStatus: "processing", advanced: true };
+}
+
+
+// 可配置 LLM 供应商的 JSON 调用：按后台 text_model_provider 选择 agnes/deepseek，失败回退 DeepSeek
+async function flexibleJsonCall(
+  env: Ctx["env"],
+  prompt: string,
+  maxTokens: number,
+  timeoutMs: number,
+  label: string
+): Promise<Record<string, unknown> | null> {
+  const cfg = await getChatProviderConfig(env);
+  if (cfg.apiKey) {
+    const raw = await callChatProvider(cfg, prompt, { maxTokens, temperature: 0.3 }, label + " (cfg)");
+    if (raw) {
+      const parsed = parseDeepseekJson(raw);
+      if (parsed) return parsed;
+    }
+  }
+  return deepseekJsonCall(env, prompt, maxTokens, timeoutMs, label);
 }

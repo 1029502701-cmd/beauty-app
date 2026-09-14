@@ -18,7 +18,9 @@ export interface Ctx {
     ADMIN_USERNAME?: string;
     ADMIN_PASSWORD?: string;
     AUTH_JWT_SECRET?: string;
-    AUTH_CENTER_SERVICE_TOKEN?: string;
+    DASHSCOPE_API_KEY?: string;
+    DEEPSEEK_API_KEY?: string;
+    AGNES_API_KEY?: string;
   };
 }
 
@@ -148,101 +150,9 @@ export async function verifyJwt(token: string, secret: string): Promise<JwtPaylo
 }
 
 
-// ── 账号中枢（chat-ai-auth）服务令牌直连 ─────────────────────────────────────────
-// 积分数据由中枢统一管理：读/扣都走 /api/sync/points*，带服务令牌，不再透传用户 JWT。
-// AUTH_CENTER_SERVICE_TOKEN 为中枢签发的服务令牌（Pages secret，勿写进 wrangler.toml）。
-export const AUTH_CENTER_URL =
-  "https://chat-ai-auth.y512149214.workers.dev";
-
-/**
- * 解析登录用户手机号（供中枢 /api/sync/points* 用）：
- * 1) 中枢 JWT 载荷 phone（若有）
- * 2) 本端 D1 users.phone（按 userId）
- * 3) KV session（按 token）
- */
-export async function resolveUserPhone(
-  req: Request,
-  env: Ctx["env"],
-  user: AuthUser
-): Promise<string> {
-  const authHeader = req.headers.get("Authorization") || "";
-  let token = "";
-  if (authHeader.startsWith("Bearer ")) token = authHeader.slice("Bearer ".length).trim();
-  else token = authHeader.replace("Bearer ", "").trim();
-
-  // 1) 中枢 JWT 的 phone claim
-  if (token && env.AUTH_JWT_SECRET) {
-    const payload = await verifyJwt(token, env.AUTH_JWT_SECRET);
-    if (payload?.phone) return String(payload.phone);
-  }
-
-  // 2) 本端 user_phone_map（登录时落库，最权威）
-  const mapRow = await env.DB
-    .prepare("SELECT phone FROM user_phone_map WHERE user_id = ? LIMIT 1")
-    .bind(user.userId)
-    .first<{ phone: string | null }>();
-  if (mapRow?.phone) return String(mapRow.phone);
-  // 2b) 兜底：本端 users 表的 phone 列
-  const row = await env.DB
-    .prepare("SELECT phone FROM users WHERE id = ? LIMIT 1")
-    .bind(user.userId)
-    .first<{ phone: string | null }>();
-  if (row?.phone) return String(row.phone);
-
-  // 3) KV session
-  if (token && env.SESSION_KV) {
-    const sessionStr = await env.SESSION_KV.get(SESSION_PREFIX + token);
-    if (sessionStr) {
-      const session: { userId?: string } = JSON.parse(sessionStr);
-      const id = session.userId || user.userId;
-      const srow = await env.DB
-        .prepare("SELECT phone FROM users WHERE id = ? LIMIT 1")
-        .bind(id)
-        .first<{ phone: string | null }>();
-      if (srow?.phone) return String(srow.phone);
-    }
-  }
-  return "";
-}
-
-/**
- * 调中枢积分接口（带服务令牌）。中枢返回 { balance } 或 { consumed, balance, ... }；
- * 非 2xx 时原样返回 { ok:false, status, error } 供调用方决定。
- */
-export async function authCenterPoints(
-  env: Ctx["env"],
-  path: string,
-  opts: { phone: string; method?: string; body?: unknown }
-): Promise<Record<string, unknown> & { ok: boolean }> {
-  const serviceToken = env.AUTH_CENTER_SERVICE_TOKEN;
-  if (!serviceToken) {
-    return { ok: false, status: 502, error: "中枢服务令牌未配置" };
-  }
-  const url =
-    AUTH_CENTER_URL +
-    path +
-    (opts.phone ? "?phone=" + encodeURIComponent(opts.phone) : "");
-  try {
-    const res = await fetch(url, {
-      method: opts.method || (opts.body ? "POST" : "GET"),
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + serviceToken,
-      },
-      body: opts.body ? JSON.stringify(opts.body) : undefined,
-    });
-    const data: Record<string, unknown> = await res.json().catch(() => ({}));
-    if (!res.ok) return { ...data, ok: false, status: res.status };
-    return { ...data, ok: true, status: res.status };
-  } catch (err) {
-    console.error("[authCenterPoints] error:", err);
-    return { ok: false, status: 502, error: "网络错误，请稍后重试" };
-  }
-}
-
-/**
- * 中间件：优先验证 JWT，失败则回退到 session 验证，返回 AuthUser 或 null
- */
+// ── 积分数据直连中枢用户态接口 ──────────────
+// 积分读/扣/赠现在直连 https://auth.meijian.top/api/points/* 用户态接口（带用户自己的 JWT），
+// 中枢从 JWT 里解出 user_id 操作 user_points，不再需要手机号中转。
 export async function requireAuth(
   req: Request,
   env: Ctx["env"]
@@ -355,6 +265,23 @@ export function parseDeepseekJson(raw: string): Record<string, unknown> | null {
 import { findProductByKeyword, findCuratedProduct } from "./_taobao";
 
 // 用 DeepSeek 为一批商品生成"针对当前用户"的个性化推荐理由（一次批量调用，降低时延）
+
+// 构建"个性化推荐理由"提示词
+export function buildReasonsPrompt(targets: Array<{ name: string; brand: string; price: string }>, userFeatures: Record<string, unknown>): string {
+  const itemsPayload = targets.map((t, i) => ({ index: i, name: t.name, brand: t.brand || "", price: t.price ? "¥" + t.price : "" }));
+  return (
+    "你是资深美妆顾问，请为下列每件商品写一句【针对该用户】的个性化推荐理由。\n" +
+    "要求：\n" +
+    "- 每句 12-28 个中文字\n" +
+    "- 必须结合【用户特征】（肤质/脸型/风格等）与该商品本身的特点（色号/功效/质地/品牌等）\n" +
+    "- 口语、可信、不夸大，不编造用户没有的特征，不提价格\n" +
+    "- 直接给一句话，不要带“推荐理由：”前缀\n\n" +
+    "【用户特征】\n" + JSON.stringify(userFeatures) + "\n\n" +
+    "【商品列表】\n" + JSON.stringify(itemsPayload) + "\n\n" +
+    '只输出严格 JSON，格式为 {"<index>":"一句理由"}，index 为商品在列表中的下标。不要输出 markdown。'
+  );
+}
+
 export async function generateProductReasons(
   targets: Array<{ name: string; brand: string; price: string }>,
   userFeatures: Record<string, unknown>,
@@ -368,16 +295,7 @@ export async function generateProductReasons(
     brand: t.brand || "",
     price: t.price ? "¥" + t.price : "",
   }));
-  const prompt =
-    "你是资深美妆顾问，请为下列每件商品写一句【针对该用户】的个性化推荐理由。\n" +
-    "要求：\n" +
-    "- 每句 12-28 个中文字\n" +
-    "- 必须结合【用户特征】（肤质/脸型/风格等）与该商品本身的特点（色号/功效/质地/品牌等）\n" +
-    "- 口语、可信、不夸大，不编造用户没有的特征，不提价格\n" +
-    "- 直接给一句话，不要带“推荐理由：”前缀\n\n" +
-    "【用户特征】\n" + JSON.stringify(userFeatures) + "\n\n" +
-    "【商品列表】\n" + JSON.stringify(itemsPayload) + "\n\n" +
-    '只输出严格 JSON，格式为 {"<index>":"一句理由"}，index 为商品在列表中的下标。不要输出 markdown。';
+  const prompt = buildReasonsPrompt(targets, userFeatures);
   try {
     const resp = await fetch("https://api.deepseek.com/v1/chat/completions", {
       method: "POST",
@@ -475,7 +393,7 @@ async function enrichProductRecs(
       return { name: String(item?.name || ""), brand: String(item?.brandName || ""), price: item?.price ? String(item.price) : "" };
     }).filter(Boolean) as Array<{ name: string; brand: string; price: string }>;
     if (productsForPrompt.length > 0) {
-      const reasons = await generateProductReasons(productsForPrompt, userFeatures, env);
+      const reasons = await generateProductReasonsFlexible(productsForPrompt, userFeatures, env);
       reasonTargets.forEach((t, pos) => {
         const item = (productRecs[t.dim] as Array<Record<string, unknown>>)[t.idx];
         if (!item) return;
@@ -506,50 +424,10 @@ export async function callDeepSeekTier2(
     console.warn(loggerPrefix + " DEEPSEEK_API_KEY not configured");
     return null;
   }
-  const prompt = `You are a professional beauty consultant. Based on the following face analysis report, provide detailed personalized recommendations for each of the 6 makeup steps.
-
-Face Analysis Report:
-${JSON.stringify(tier1Report, null, 2)}
-
-Rules for each step:
-- Step 01 (base makeup): based on skinType (skin condition)
-- Step 02 (eyebrows): based on eyebrowShape
-- Step 03 (eye makeup): combine eyeShape + threeFiveRatio
-- Step 04 (blush): based on symmetry
-- Step 05 (contour): based on faceShape
-- Step 06 (lip): combine personaTags + highlight to infer skin tone & lip shape recommendations
-
-Output strict JSON only (no markdown wrapping):
-{
-  "coreConclusion": "1-2 sentence overall style conclusion in Chinese",
-  "style": "style tag like 温柔知性风",
-  "steps": [
-    {"step":"01","label":"底妆","key":"skinType","emoji":"🧴","analysis":"<personalized analysis for THIS user>","why":"<why this approach fits>","steps":"<step-by-step instructions separated by arrows>","tips":"<warnings separated by semicolons>","products":[{"name":"product name","desc":"reason","price":"price"}]},
-    {"step":"02","label":"眉形","key":"eyebrowShape","emoji":"✏️","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]},
-    {"step":"03","label":"眼妆","key":"eyeShape","emoji":"👁","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]},
-    {"step":"04","label":"腮红","key":"symmetry","emoji":"🌸","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]},
-    {"step":"05","label":"修容","key":"faceShape","emoji":"🪞","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]},
-    {"step":"06","label":"唇妆","key":"lip","emoji":"💄","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]}
-  ],
-  "overallTips": "1-2 sentence summary in Chinese",
-  "productRecs": {
-    "skinType": [{"name":"product name","desc":"reason"}],
-    "eyebrowShape": [{"name":"product name","desc":"reason"}],
-    "eyeShape": [{"name":"product name","desc":"reason"}],
-    "symmetry": [{"name":"product name","desc":"reason"}],
-    "faceShape": [{"name":"product name","desc":"reason"}],
-    "lip": [{"name":"product name","desc":"reason"}]
-  }
-}
-
-Important:
-1. Every step must be personalized to THIS specific user - reference their actual features
-2. Use '你是X' format in analysis (e.g. '你是圆脸' not '圆脸适合')
-3. Separate tips with Chinese semicolons (;)
-4. Recommend specific real products suitable for this user`;
+    const prompt = buildTier2Prompt(tier1Report);
   async function doCall(retryCount: number): Promise<Record<string, unknown> | null> {
     try {
-      const resp = await fetch("https://api.deepseek.com/v1/chat/completions", {
+    const resp = await fetch("https://api.deepseek.com/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({ model: "deepseek-chat", messages: [{ role: "user", content: prompt }], max_tokens: 8000, temperature: 0.3 }),
@@ -637,4 +515,271 @@ export async function generateTier2RecordAsync(
     console.error(`${loggerPrefix} exception for ${tier2Id}:`, e);
     try { await setStatus("failed"); } catch {}
   }
+}
+
+
+// ---------------- Agnes / LLM 可配置模型调用 ----------------
+// 模型供应商可在后台"模型配置"里切换（app_config: text_model_provider / text_model_name / image_model_provider）
+const LLM_TIMEOUT_MS = 60000;
+
+interface ChatProviderConfig { baseUrl: string; apiKey: string; model: string; }
+
+/** 读取文本模型供应商配置（deepseek / agnes） */
+export async function getChatProviderConfig(env: Ctx["env"]): Promise<ChatProviderConfig> {
+  let provider = "deepseek";
+  let overrideModel = "";
+  try {
+    const rows = (await env.DB.prepare(
+      "SELECT key, value FROM app_config WHERE key IN ('text_model_provider','text_model_name')"
+    ).all<{key:string; value:string}>()).results ?? [];
+    for (const r of rows) {
+      if (r.key === "text_model_provider" && r.value) provider = r.value.trim().toLowerCase();
+      if (r.key === "text_model_name" && r.value) overrideModel = r.value.trim();
+    }
+  } catch (e) { console.warn("[chat] read provider config failed:", e); }
+  if (provider === "agnes") {
+    const key = env.AGNES_API_KEY || "";
+    return { baseUrl: "https://apihub.agnes-ai.com/v1", apiKey: key, model: overrideModel || "agnes-3.0-flash" };
+  }
+  return { baseUrl: "https://api.deepseek.com/v1", apiKey: env.DEEPSEEK_API_KEY || "", model: overrideModel || "deepseek-chat" };
+}
+
+/** OpenAI 兼容 chat 调用，失败返回 null（调用方负责回退） */
+export async function callChatProvider(
+  cfg: ChatProviderConfig,
+  prompt: string,
+  opts: { maxTokens?: number; temperature?: number } = {},
+  loggerPrefix = "[chat]",
+  timeoutMs: number = LLM_TIMEOUT_MS
+): Promise<string | null> {
+  if (!cfg.apiKey) { console.warn(loggerPrefix + " no API key for provider " + cfg.baseUrl); return null; }
+  try {
+    const resp = await fetch(cfg.baseUrl + "/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + cfg.apiKey },
+      body: JSON.stringify({ model: cfg.model, messages: [{ role: "user", content: prompt }], max_tokens: opts.maxTokens ?? 2000, temperature: opts.temperature ?? 0.3 }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!resp.ok) { console.error(loggerPrefix + " provider HTTP " + resp.status); return null; }
+    const data: any = await resp.json();
+    return data?.choices?.[0]?.message?.content ?? null;
+  } catch (e) { console.error(loggerPrefix + " provider exception:", e); return null; }
+}
+
+// 生成商品推荐理由：agnes 优先（若配置），失败回退 DeepSeek
+export async function generateProductReasonsFlexible(
+  targets: Array<{ name: string; brand: string; price: string }>,
+  userFeatures: Record<string, unknown>,
+  env: Ctx["env"]
+): Promise<Record<string, string>> {
+  const cfg = await getChatProviderConfig(env);
+  if (cfg.apiKey) {
+    const raw = await callChatProvider(cfg, buildReasonsPrompt(targets, userFeatures), { maxTokens: 900, temperature: 0.4 }, "[tier2/reasons]");
+    const parsed = raw ? parseDeepseekJson(raw) : null;
+    if (parsed && typeof parsed === "object") {
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(parsed)) if (typeof v === "string") out[k] = v;
+      return out;
+    }
+  }
+  return generateProductReasons(targets, userFeatures, env);
+}
+
+// 生成 tier2 报告：agnes 优先（若配置），失败回退 DeepSeek
+export async function callTier2ReportFlexible(
+  tier1Report: Record<string, unknown>,
+  env: Ctx["env"],
+  loggerPrefix = "[tier2/generate]"
+): Promise<Record<string, unknown> | null> {
+  const cfg = await getChatProviderConfig(env);
+  if (cfg.apiKey) {
+    const prompt = buildTier2Prompt(tier1Report);
+    const raw = await callChatProvider(cfg, prompt, { maxTokens: 8000, temperature: 0.3 }, loggerPrefix + " (config)");
+    if (raw) {
+      const report = parseDeepseekJson(raw);
+      if (report && Object.keys(report).length > 0) {
+        await Promise.race([enrichProductRecs(report, env, tier1Report), new Promise((r) => setTimeout(r, 30000))]);
+        return report;
+      }
+      console.warn(loggerPrefix + " config provider returned non-JSON, falling back");
+    }
+  }
+  return callDeepSeekTier2(tier1Report, env, loggerPrefix);
+}
+
+// 构建 tier2 报告提示词
+export function buildTier2Prompt(tier1Report: Record<string, unknown>): string {
+return `You are a professional beauty consultant. Based on the following face analysis report, provide detailed personalized recommendations for each of the 6 makeup steps.
+
+Face Analysis Report:
+${JSON.stringify(tier1Report, null, 2)}
+
+Rules for each step:
+- Step 01 (base makeup): based on skinType (skin condition)
+- Step 02 (eyebrows): based on eyebrowShape
+- Step 03 (eye makeup): combine eyeShape + threeFiveRatio
+- Step 04 (blush): based on symmetry
+- Step 05 (contour): based on faceShape
+- Step 06 (lip): combine personaTags + highlight to infer skin tone & lip shape recommendations
+
+Output strict JSON only (no markdown wrapping):
+{
+  "coreConclusion": "1-2 sentence overall style conclusion in Chinese",
+  "style": "style tag like 温柔知性风",
+  "steps": [
+    {"step":"01","label":"底妆","key":"skinType","emoji":"🧴","analysis":"<personalized analysis for THIS user>","why":"<why this approach fits>","steps":"<step-by-step instructions separated by arrows>","tips":"<warnings separated by semicolons>","products":[{"name":"product name","desc":"reason","price":"price"}]},
+    {"step":"02","label":"眉形","key":"eyebrowShape","emoji":"✏️","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]},
+    {"step":"03","label":"眼妆","key":"eyeShape","emoji":"👁","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]},
+    {"step":"04","label":"腮红","key":"symmetry","emoji":"🌸","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]},
+    {"step":"05","label":"修容","key":"faceShape","emoji":"🪞","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]},
+    {"step":"06","label":"唇妆","key":"lip","emoji":"💄","analysis":"...","why":"...","steps":"...","tips":"...","products":[{"name":"...","desc":"...","price":"..."}]}
+  ],
+  "overallTips": "1-2 sentence summary in Chinese",
+  "productRecs": {
+    "skinType": [{"name":"product name","desc":"reason"}],
+    "eyebrowShape": [{"name":"product name","desc":"reason"}],
+    "eyeShape": [{"name":"product name","desc":"reason"}],
+    "symmetry": [{"name":"product name","desc":"reason"}],
+    "faceShape": [{"name":"product name","desc":"reason"}],
+    "lip": [{"name":"product name","desc":"reason"}]
+  }
+}
+
+Important:
+1. Every step must be personalized to THIS specific user - reference their actual features
+2. Use '你是X' format in analysis (e.g. '你是圆脸' not '圆脸适合')
+3. Separate tips with Chinese semicolons (;)
+4. Recommend specific real products suitable for this user`;
+}
+
+
+// ===== tier3 报告：可切换模型（agnes / DeepSeek），与 tier2 同一套 provider 抽象 =====
+
+/** 构建 tier3 场景化建议提示词（与 generate.ts 原 prompt 一致） */
+export function buildTier3Prompt(
+  tier1Report: Record<string, unknown>,
+  questionnaireAnswers: Record<string, string>
+): string {
+  const style = questionnaireAnswers.makeupStyle ?? "";
+  const scenario = questionnaireAnswers.scenario ?? "";
+  const skillLevel = questionnaireAnswers.skillLevel ?? "";
+  const timeCost = questionnaireAnswers.timeCost ?? "";
+  const faceSummary = {
+    faceShape: tier1Report.faceShape,
+    skinType: tier1Report.skinType,
+    eyebrowShape: tier1Report.eyebrowShape,
+    eyeShape: tier1Report.eyeShape,
+  };
+  return `You are a professional beauty consultant. Provide a concise, personalized makeup guide.
+
+User's Face Analysis Summary:
+  脸型: ${faceSummary.faceShape ?? '未知'}
+  肤质: ${faceSummary.skinType ?? '未知'}
+  眉形: ${faceSummary.eyebrowShape ?? '未知'}
+  眼形: ${faceSummary.eyeShape ?? '未知'}
+
+User's Preferences:
+- 妆容风格: ${style}
+- 使用场景: ${scenario}
+- 熟练程度: ${skillLevel}
+- 时间成本: ${timeCost}
+
+Output ONLY strict JSON, no markdown. Structure:
+{
+  "overallAdvice": "one paragraph of overall advice",
+  "stepByStep": [ {"step":"number","title":"string","description":"string","timeEstimate":"string","difficultyHint":"string"} ],
+  "productRecs": { "base":[{"name":"","reason":""}],"eyes":[{"name":"","reason":""}],"lips":[{"name":"","reason":""}],"cheeks":[{"name":"","reason":""}] },
+  "tips": ["string"],
+  "timeWarning": "string",
+  "styleNote": "string"
+}
+
+Guidelines:
+- Be specific to the user's actual face features
+- Adapt difficulty to skillLevel (新手=简单, 熟练进阶=专业)
+- Keep step count matched to timeCost (5分钟极简=3-4步, 30分钟以上精致=6-8步)
+- All text in Chinese except JSON keys
+- Be concrete: specific techniques, product types, application methods`;
+}
+
+/** 生成 tier3 报告：可配置模型优先（agnes / DeepSeek），失败返回 null（由调用方决定是否兜底）
+ *  模型切换通过 app_config 表 text_model_provider / text_model_name 控制，无需改代码。 */
+export async function callTier3Flexible(
+  tier1Report: Record<string, unknown>,
+  questionnaireAnswers: Record<string, string>,
+  env: Ctx["env"],
+  loggerPrefix = "[tier3/generate]"
+): Promise<Record<string, unknown> | null> {
+  const cfg = await getChatProviderConfig(env);
+  if (cfg.apiKey) {
+    const prompt = buildTier3Prompt(tier1Report, questionnaireAnswers);
+    // 并行竞速：Agnes 快速通道（12s 预算）与 DeepSeek 兜底同时发起，谁先给出可解析 JSON 用谁，
+    // 避免"Agnes 慢 30s + DeepSeek 再 15s"串行超时被平台 30s wall-clock 杀掉。
+    // Agnes 主通道（10s 预算）+ DeepSeek 兜底（12s 预算）并行竞速，合计最长 12s
+    const deepSeekFallback = callDeepSeekTier3Fallback(tier1Report, questionnaireAnswers, env, loggerPrefix, 12000);
+    let raw: string | null = null;
+    try {
+      const [agnesRaw] = await Promise.all([
+        callChatProvider(cfg, prompt, { maxTokens: 2000, temperature: 0.6 }, loggerPrefix + " (" + cfg.model + ")", 10000),
+      ]);
+      raw = agnesRaw;
+    } catch {}
+    let report = raw ? parseDeepseekJson(raw) : null;
+    if (report && Object.keys(report).length > 0) return report;
+    // Agnes 失败/慢/非 JSON → 用并行的 DeepSeek 结果
+    const fb = await deepSeekFallback;
+    if (fb) return fb;
+  }
+  // 回退到 DeepSeek（Agnes 未配置 key 时直接走这里）
+  return callDeepSeekTier3Fallback(tier1Report, questionnaireAnswers, env, loggerPrefix, 12000);
+}
+
+/** DeepSeek 兜底（单次 15s 调用，不重试；tier3 竞速阶段预算内必须命中） */
+async function callDeepSeekTier3Fallback(
+  tier1Report: Record<string, unknown>,
+  questionnaireAnswers: Record<string, string>,
+  env: Ctx["env"],
+  loggerPrefix: string,
+  timeoutMs: number = 15000
+): Promise<Record<string, unknown> | null> {
+  const apiKey = env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    console.warn(loggerPrefix + " DEEPSEEK_API_KEY not configured (fallback)");
+    return null;
+  }
+  const prompt = buildTier3Prompt(tier1Report, questionnaireAnswers);
+  let report: Record<string, unknown> | null = null;
+  try {
+    const resp = await fetch("https://api.deepseek.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
+        body: JSON.stringify({
+          model: "deepseek-chat",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 600,
+          temperature: 0.6,
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    if (!resp.ok) {
+        const eb = await resp.text().catch(() => "");
+        console.error(loggerPrefix + " DeepSeek error " + resp.status + ": " + eb.slice(0, 200));
+        return null;
+      }
+    const data: any = await resp.json();
+    const raw = data?.choices?.[0]?.message?.content;
+    if (!raw) {
+        console.error(loggerPrefix + " DeepSeek empty response");
+        return null;
+      }
+    report = parseDeepseekJson(raw);
+    if (!report) {
+        console.error(loggerPrefix + " JSON parse failed");
+        return null;
+    }
+  } catch (e) {
+    console.error(loggerPrefix + " DeepSeek exception:", e);
+    return null;
+  }
+  return report;
 }

@@ -1,5 +1,5 @@
 import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
-import { requireAuth, resolveUserPhone, authCenterPoints } from "../../_utils";
+import { requireAuth } from "../../_utils";
 
 // GET /api/tier3/points-unlock-status
 // 查询当前用户是否已通过积分解锁专属报告（本端 tier3_points_unlock 持久化记录）。
@@ -24,14 +24,17 @@ export const GET: FrameworkCallbackOptions["GET"] = async (context) => {
     .first<{ source: string; report_ref: string | null; unlocked_at: number }>();
 
   let balance: number | null = null;
-  const phone = await resolveUserPhone(request, env, user);
-  if (phone) {
-    try {
-      const res = await authCenterPoints(env, "/api/sync/points", { phone });
-      if (res.ok && typeof res.balance === "number") balance = res.balance;
-    } catch (e) {
-      console.warn("[tier3/points-unlock-status] balance proxy failed:", e);
-    }
+  try {
+    const authHeader = request.headers.get("Authorization") || "";
+    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : authHeader.trim();
+    const res = await fetch("https://auth.meijian.top/api/points/balance", {
+      method: "GET",
+      headers: { Authorization: "Bearer " + jwt },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && typeof data.balance === "number") balance = data.balance;
+  } catch (e) {
+    console.warn("[tier3/points-unlock-status] balance read failed:", e);
   }
 
   return new Response(

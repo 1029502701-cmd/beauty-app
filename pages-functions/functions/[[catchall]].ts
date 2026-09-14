@@ -1,4 +1,4 @@
-﻿import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
+import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
 
 export const onRequest: FrameworkCallbackOptions["onRequest"] = async (context) => {
   const { env, request } = context;
@@ -14,7 +14,8 @@ export const onRequest: FrameworkCallbackOptions["onRequest"] = async (context) 
     const asset = await env.ASSETS.fetch(request);
     if (asset.status === 200) return asset;
   } catch {}
-  // Then check if it's a known SPA route -> serve index.html
+  // Then check if it is a known SPA route -> serve index.html
+  // /chat is intentionally NOT in this allow-list (matches current prod behavior)
   const spaRoutes = ["/", "/tier1-result", "/capture", "/home", "/report", "/influencer-apply", "/admin/login", "/admin/dashboard"];
   const isKnownSpaRoute = spaRoutes.includes(url.pathname) || url.pathname.startsWith("/report/");
   if (isKnownSpaRoute) {

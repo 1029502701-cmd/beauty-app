@@ -1,5 +1,5 @@
 import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
-import { requireAuth, generateId, beijingDate, parseDeepseekJson } from "../../_utils";
+import { requireAuth, generateId, beijingDate, parseDeepseekJson, getChatProviderConfig, callChatProvider } from "../../_utils";
 import { resizeBase64IfNeeded } from "../../_image_utils";
 import type { Ctx } from "../../_utils";
 
@@ -160,11 +160,8 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
     return new Response(JSON.stringify({ report: ph, reportId }), { headers: { "Content-Type": "application/json" } });
   }
 
-  // 调用 DeepSeek 生成结构化报告
-  const dsApiKey = env.DEEPSEEK_API_KEY;
-  let report: Record<string, unknown> = {};
-  if (dsApiKey) {
-    const prompt = `You are a professional beauty consultant. Based on the following face description, select exactly one option from each category and provide personalized advice.
+  // 生成结构化报告：按后台 text_model_provider 选择 Agnes/DeepSeek，失败回退 DeepSeek
+  const prompt = `You are a professional beauty consultant. Based on the following face description, select exactly one option from each category and provide personalized advice.
 
 [Face Description]
 ${textDesc}
@@ -189,30 +186,43 @@ Output strict JSON only, with these exact keys:
   "highlight": "A one-sentence catchy compliment in Chinese, 10-20 characters",
   "suggestions": ["3-5 makeup tips in Chinese"]
 }`;
-    const resp = await fetch("https://api.deepseek.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${dsApiKey}` },
-      body: JSON.stringify({ model: "deepseek-chat", messages: [{ role: "user", content: prompt }], max_tokens: 500, temperature: 0.3 }),
-      signal: AbortSignal.timeout(20000),
-    });
-    if (resp.ok) {
-      const data: any = await resp.json();
-      const raw = data?.choices?.[0]?.message?.content;
-      if (raw) {
-        const parsed = parseDeepseekJson(raw);
-        if (parsed) {
-          Object.assign(report, parsed);
+
+  let cfg = await getChatProviderConfig(env);
+  let raw = cfg.apiKey ? await callChatProvider(cfg, prompt, { maxTokens: 500, temperature: 0.3 }, "[tier1/analyze] (" + cfg.model + ")") : null;
+  let parsed = raw ? parseDeepseekJson(raw) : null;
+  if (!parsed) {
+    // 配置供应商失败 → 回退 DeepSeek
+    const dsApiKey = env.DEEPSEEK_API_KEY;
+    if (dsApiKey && !(cfg.apiKey && cfg.model === "deepseek-chat")) {
+      try {
+        const resp = await fetch("https://api.deepseek.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + dsApiKey },
+          body: JSON.stringify({ model: "deepseek-chat", messages: [{ role: "user", content: prompt }], max_tokens: 500, temperature: 0.3 }),
+          signal: AbortSignal.timeout(20000),
+        });
+        if (resp.ok) {
+          const data: any = await resp.json();
+          parsed = parseDeepseekJson(data?.choices?.[0]?.message?.content) || null;
+        } else {
+          const errBody = await resp.text().catch(() => "");
+          let dsError = "";
+          try { dsError = JSON.parse(errBody)?.error?.message ?? "AI报告生成异常（" + resp.status + "）"; } catch { dsError = "AI报告生成异常（" + resp.status + "）"; }
+          return new Response(JSON.stringify({ error: "deepseek_error", message: "报告生成失败：" + dsError }), { status: 503, headers: { "Content-Type": "application/json" } });
         }
+      } catch (e) {
+        console.warn("[tier1/analyze] DeepSeek fallback exception:", e);
       }
-    } else {
-      const errBody = await resp.text().catch(() => "");
-      let dsError = "";
-      try { dsError = JSON.parse(errBody)?.error?.message ?? "AI报告生成异常（" + resp.status + "）"; } catch { dsError = "AI报告生成异常（" + resp.status + "）"; }
-      return new Response(JSON.stringify({ error: "deepseek_error", message: "报告生成失败：" + dsError }), { status: 503, headers: { "Content-Type": "application/json" } });
     }
-  } else {
-    console.warn("[tier1/analyze] DEEPSEEK_API_KEY not set, skipping DeepSeek call");
+  }
+  if (!parsed && !(cfg.apiKey || env.DEEPSEEK_API_KEY)) {
+    console.warn("[tier1/analyze] no LLM key configured");
     return new Response(JSON.stringify({ error: "config_error", message: "报告生成服务未配置，请联系管理员" }), { status: 503, headers: { "Content-Type": "application/json" } });
+  }
+
+  const report: Record<string, unknown> = {};
+  if (parsed) {
+    Object.assign(report, parsed);
   }
 
   // Fallback defaults

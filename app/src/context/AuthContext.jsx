@@ -31,7 +31,7 @@ export function AuthProvider({ children }) {
         clearTokenInvalidFlag();
         setToken(null);
         setTokenState(null);
-        currentOnTokenInvalid?.();
+        currentOnTokenInvalid?.(); // 触发 RequireAuth 立即跳中枢，避免 401 请求风暴
       } finally {
         setValidating(false);
         setLoading(false);

@@ -69,13 +69,23 @@ export const inviteApi = {
 // 仅用于按钮可用性判断；真实扣减金额由服务端决定，前端值不作数。
 export const UNLOCK_REPORT_AMOUNT = 6;
 
-// 前端 pointsApi 统一走本端后端代理（/api/points/* → auth-center），
-// 不再直连中枢、不再自读 ledger / 另一套 D1。
+// 中枢用户态积分接口地址（带当前登录用户自己的 JWT；中枢从 JWT 解出 user_id 操作 user_points，无手机号中转）
+export const AUTH_POINTS_BASE = 'https://auth.meijian.top';
+
+// 前端 pointsApi 积分读/扣直连中枢用户态接口（getBalance/unlockReport）；
+// 解锁资格记录仍走本端 /api/tier3/points-unlock-*（本端 D1 台账）。
 export const pointsApi = {
   getBalance: async () => {
     const token = localStorage.getItem('session_token');
-    if (!token) throw new Error('未登录');
-    const res = await fetch(BASE + '/points/balance', {
+    if (!token) {
+      // 无登录态：不再抛错触发级联请求，直接跳中枢（外部鉴权模式）
+      if (new URL(window.location.href).searchParams.get('local') !== '1') {
+        const target = encodeURIComponent(window.location.href);
+        window.location.href = 'https://auth.meijian.top?redirect=' + target;
+      }
+      throw new Error('未登录');
+    }
+    const res = await fetch(AUTH_POINTS_BASE + '/api/points/balance', {
       headers: { Authorization: 'Bearer ' + token },
     });
     const data = await res.json().catch(() => ({}));
@@ -119,7 +129,7 @@ export const pointsApi = {
     if (!res.ok) throw new Error(data?.error || '记录解锁状态失败');
     return data;
   },
-  // 解锁专属（3 档）报告：价格/去重由服务端定，前端只传 reportId
+  // 解锁专属（3 档）报告：价格/去重由本端服务端定，前端只传 reportId
   unlockReport: async (reportId) => {
     const token = localStorage.getItem('session_token');
     if (!token) throw new Error('未登录');

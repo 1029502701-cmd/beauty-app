@@ -1,4 +1,4 @@
-﻿name = "beauty-api-pages"
+name = "beauty-api-pages"
 pages_build_output_dir = "dist"
 compatibility_date = "2025-01-01"
 
@@ -24,5 +24,6 @@ ADMIN_USERNAME = "15961962243"
 ADMIN_PASSWORD = "123456bn"
 TAOBAO_APP_KEY = "35375517"
 TAOBAO_PID = "mm_26868668_3430700405_116312800133"
+# AGNES_API_KEY is provided as a Pages secret (not vars) to avoid binding conflict
 AUTH_JWT_SECRET = "test-secret-for-local-dev-only"
 migrations_dir = "../migrations"
