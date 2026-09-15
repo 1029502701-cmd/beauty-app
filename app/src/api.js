@@ -23,31 +23,45 @@ async function request(path, options = {}) {
 }
 
 export const authApi = {
-  loginPassword: (account, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ account, password }) }),
-  // 登录/注册走中枢（本端 /auth/login-or-register 代理到 auth-center，不再本地建号）
-  // 首次使用传 isRegister:true（可带 inviteCode）；返回中枢 JWT token
-  loginOrRegister: (account, password, opts = {}) =>
-    request('/auth/login-or-register', {
+  // 登录/注册走中枢两个独立接口（本端 /auth/login、/auth/register 为纯透传代理，不做转换/缓存），
+  // 返回中枢签发的 JWT；前端按"已注册/未注册"状态分别调对应接口，不再共用一个"提交"按钮自动判断。
+  login: (account, password) =>
+    request('/auth/login', { method: 'POST', body: JSON.stringify({ account, password }) }),
+  register: (account, password) =>
+    request('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({
-        account,
-        password,
-        ...(opts.isRegister ? { isRegister: true } : {}),
-        ...(opts.inviteCode ? { inviteCode: opts.inviteCode } : {}),
-      }),
+      body: JSON.stringify({ account, password }),
     }),
-  sendSmsCode: (phone) => request('/auth/phone/send-code', { method: 'POST', body: JSON.stringify({ phone }) }),
-  setPassword: (password) => request('/auth/set-password', { method: 'POST', body: JSON.stringify({ password }) }),
+  // 补全/更新性别、年龄段：本端 /auth/profile 纯透传到中枢 PUT /api/auth/profile
+  setProfile: (gender, age_range) =>
+    request('/auth/profile', { method: 'PUT', body: JSON.stringify({ gender, age_range }) }),
   logout: () => request('/auth/logout', { method: 'POST' }),
   probe: () => request('/reports/mine', { method: 'GET' }),
-  getProfile: () => request('/auth/profile', { method: 'GET' }),
-  setProfile: (gender, age_range) => request('/auth/profile', { method: 'POST', body: JSON.stringify({ gender, age_range }) }),
 };
 
 // ── Points APIs (via auth-center, cross-origin allowed) ───────────────────────
 
 // Invite APIs
 export const inviteApi = {
+  // 兑换他人邀请码（注册后的独立步骤）：本端 /invite/redeem 纯透传到中枢 /api/invite/redeem
+  redeem: async (inviteCode) => {
+    const token = localStorage.getItem('session_token');
+    if (!token) throw new Error('未登录');
+    const res = await fetch(BASE + '/invite/redeem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ inviteCode }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        tokenInvalid = true;
+        localStorage.removeItem('session_token');
+      }
+      return { ok: false, error: data.error || '兑换失败' };
+    }
+    return { ok: true, data };
+  },
   getMine: async () => {
     const token = localStorage.getItem('session_token');
     if (!token) throw new Error('未登录');
@@ -69,8 +83,35 @@ export const inviteApi = {
 // 仅用于按钮可用性判断；真实扣减金额由服务端决定，前端值不作数。
 export const UNLOCK_REPORT_AMOUNT = 6;
 
-// 中枢用户态积分接口地址（带当前登录用户自己的 JWT；中枢从 JWT 解出 user_id 操作 user_points，无手机号中转）
+// 中枢用户态积分/画像标签接口地址（带当前登录用户自己的 JWT；中枢从 JWT 解出 user_id 操作 user_points，无手机号中转）
 export const AUTH_POINTS_BASE = 'https://auth.meijian.top';
+
+// 画像标签（脸型/肤质/妆容风格等）统一走中枢 /api/profile/facts，本端不缓存副本。
+// 读取时不要假设某个 key 一定有值（其他项目写的标签本端可能没有）。
+export const profileApi = {
+  getFacts: async () => {
+    const token = localStorage.getItem('session_token');
+    if (!token) throw new Error('未登录');
+    const res = await fetch(AUTH_POINTS_BASE + '/api/profile/facts', {
+      headers: { Authorization: 'Bearer ' + token },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || '获取画像标签失败');
+    return data.facts || [];
+  },
+  writeFacts: async (facts) => {
+    const token = localStorage.getItem('session_token');
+    if (!token) throw new Error('未登录');
+    const res = await fetch(AUTH_POINTS_BASE + '/api/profile/facts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ source_project: '美妆app', facts }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || '写入画像标签失败');
+    return data;
+  },
+};
 
 // 前端 pointsApi 积分读/扣直连中枢用户态接口（getBalance/unlockReport）；
 // 解锁资格记录仍走本端 /api/tier3/points-unlock-*（本端 D1 台账）。

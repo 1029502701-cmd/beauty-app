@@ -126,3 +126,23 @@ _prod_tokens.json
 _shot/
 pages-functions/.wf-test/
 pages-functions/.wf-test2/
+# 本轮 tier3 两步交互 + 504 排障产生的临时脚本/截图/日志/部署产物
+patch*.js
+patch_*.txt
+patch*.txt
+agnes-test*.mjs
+browser-test.js
+debug-state*.js
+t3-*.js
+t3_dbg*.png
+t3_*.png
+t3_*.txt
+tier3_*.js
+tier3_*.png
+tier3_*.txt
+tier2-preview*.png
+agen-test*.mjs
+deploy-final/
+pages-functions/face-photos/
+pages-functions/test-account.json
+pages-functions/test-report.json

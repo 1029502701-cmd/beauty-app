@@ -69,6 +69,8 @@ export const GET = async (context) => {
       const nowSec = Math.floor(Date.now() / 1000);
       const stageDue = !row.updated_at || nowSec - row.updated_at >= 5;
       if (stageDue) {
+        // 把当前调用方 JWT 透传给阶段引擎，ready 阶段用它写画像标签（非阻塞）
+        (env as any).__tier2_caller_jwt = (request.headers.get("Authorization") || "").replace("Bearer ", "").trim();
         const adv = await advanceTier2Stage(env, tier2Id);
         if (adv.advanced) row = (await selectRow("id = ? AND user_id = ?", [tier2Id, user.userId])) || row;
       }

@@ -1,9 +1,6 @@
 // Inline Platform type (replaces broken import from functions/worker)
 
 // Session key prefix in KV
-export const SESSION_PREFIX = "session:";
-// Session TTL: 7 days in seconds
-const SESSION_TTL = 7 * 24 * 60 * 60;
 // Admin session prefix in KV
 const ADMIN_SESSION_PREFIX = "admin_session:";
 // Admin session TTL: 30 days in seconds
@@ -158,46 +155,43 @@ export async function requireAuth(
   env: Ctx["env"]
 ): Promise<AuthUser | null> {
   const authHeader = req.headers.get("Authorization");
-  if (!authHeader) return null;
-  console.log("[requireAuth] authHeader present=" + !!authHeader + " startsWithBearer=" + authHeader.startsWith("Bearer ") + " hasSecret=" + !!env.AUTH_JWT_SECRET);
-
-  // 1. 优先尝试 JWT 验证（chat-ai-auth 签发）
-  if (authHeader.startsWith("Bearer ") && env.AUTH_JWT_SECRET) {
-    const jwtToken = authHeader.slice("Bearer ".length);
-    const payload = await verifyJwt(jwtToken, env.AUTH_JWT_SECRET);
-    if (payload) {
-      const userId = payload.user_id;
-      try {
-        await env.DB.prepare(
-          'INSERT OR IGNORE INTO users (id, phone, created_at, updated_at) VALUES (?, ?, ?, ?)'
-        ).bind(userId, 'jwt-' + userId.slice(0, 8), Math.floor(Date.now()/1000), Math.floor(Date.now()/1000)).run();
-      } catch(e) {
-        console.warn('[requireAuth] auto-create user failed:', e);
-      }
-      return { userId, gender: payload.gender, age_range: payload.age_range };
-    }
+  if (!authHeader || !authHeader.startsWith("Bearer ") || !env.AUTH_JWT_SECRET) return null;
+  const jwtToken = authHeader.slice("Bearer ".length);
+  const payload = await verifyJwt(jwtToken, env.AUTH_JWT_SECRET);
+  if (!payload) return null;
+  // 身份唯一来源是中枢（chat-ai-auth）签发的 JWT：本端不回退本地 KV session。
+  // 但本端业务表（orders/tokens/reports_tier* 等）带 FOREIGN KEY(user_id) REFERENCES users(id)，
+  // 中枢注册的用户在本端 users 表未必有行 → 订单/报告写入会触发外键约束失败(500)。
+  // 因此 JWT 校验通过后，幂等地确保本端 users 表存在该行（占位 phone，不覆盖中枢权威数据）。
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO users (id, phone, created_at, updated_at) VALUES (?, ?, ?, ?)"
+    ).bind(payload.user_id, "jwt-" + String(payload.user_id).slice(0, 8), now, now).run();
+  } catch (e) {
+    console.warn("[requireAuth] ensure user row failed:", e);
   }
+  return { userId: payload.user_id, gender: payload.gender ?? null, age_range: payload.age_range ?? null };
+}
 
-  // 2. 回退到 session 验证（原有逻辑）
-  console.log("[requireAuth] JWT failed, falling back to session auth");
-  const token = authHeader.replace("Bearer ", "");
-  if (!token) return null;
-
-  const sessionKey = `${SESSION_PREFIX}${token}`;
-  const sessionStr = await env.SESSION_KV.get(sessionKey);
-  if (!sessionStr) return null;
-
-  const session: { userId: string; gender?: string | null; age_range?: string | null; expiresAt: number } = JSON.parse(sessionStr);
-  const now = Math.floor(Date.now() / 1000);
-  if (session.expiresAt < now) return null;
-
-  // 滑动过期：每次有效请求刷新 TTL
-  await env.SESSION_KV.put(sessionKey, sessionStr, {
-    expirationTtl: SESSION_TTL,
-  });
-
-  console.log("[requireAuth] session OK userId=" + session.userId);
-  return { userId: session.userId, gender: session.gender || null, age_range: session.age_range || null };
+// 用户画像标签（脸型/肤质/妆容风格等）统一走中枢 /api/profile/facts，本端不缓存副本。
+// 写入时机：分析/生成结果确定之后再调（见 tier1/analyze、_tier2_stages 的 ready 阶段），不要在用户看到结果前就写。
+const AUTH_CENTER_BASE = "https://auth.meijian.top";
+export async function writeProfileFacts(
+  jwt: string,
+  facts: Array<{ key: string; value: string }>
+): Promise<void> {
+  if (!jwt || facts.length === 0) return;
+  try {
+    await fetch(AUTH_CENTER_BASE + "/api/profile/facts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + jwt },
+      body: JSON.stringify({ source_project: "美妆app", facts }),
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch (e) {
+    console.warn("[profile/facts] write failed, non-blocking:", e);
+  }
 }
 
 /**
@@ -594,7 +588,7 @@ export async function callTier2ReportFlexible(
   const cfg = await getChatProviderConfig(env);
   if (cfg.apiKey) {
     const prompt = buildTier2Prompt(tier1Report);
-    const raw = await callChatProvider(cfg, prompt, { maxTokens: 8000, temperature: 0.3 }, loggerPrefix + " (config)");
+    const raw = await callChatProvider(cfg, prompt, { maxTokens: 2000, temperature: 0.3 }, loggerPrefix + " (config)");
     if (raw) {
       const report = parseDeepseekJson(raw);
       if (report && Object.keys(report).length > 0) {
@@ -660,46 +654,52 @@ export function buildTier3Prompt(
   tier1Report: Record<string, unknown>,
   questionnaireAnswers: Record<string, string>
 ): string {
-  const style = questionnaireAnswers.makeupStyle ?? "";
-  const scenario = questionnaireAnswers.scenario ?? "";
-  const skillLevel = questionnaireAnswers.skillLevel ?? "";
-  const timeCost = questionnaireAnswers.timeCost ?? "";
-  const faceSummary = {
-    faceShape: tier1Report.faceShape,
-    skinType: tier1Report.skinType,
-    eyebrowShape: tier1Report.eyebrowShape,
-    eyeShape: tier1Report.eyeShape,
-  };
-  return `You are a professional beauty consultant. Provide a concise, personalized makeup guide.
-
-User's Face Analysis Summary:
-  脸型: ${faceSummary.faceShape ?? '未知'}
-  肤质: ${faceSummary.skinType ?? '未知'}
-  眉形: ${faceSummary.eyebrowShape ?? '未知'}
-  眼形: ${faceSummary.eyeShape ?? '未知'}
-
-User's Preferences:
-- 妆容风格: ${style}
-- 使用场景: ${scenario}
-- 熟练程度: ${skillLevel}
-- 时间成本: ${timeCost}
-
-Output ONLY strict JSON, no markdown. Structure:
-{
-  "overallAdvice": "one paragraph of overall advice",
-  "stepByStep": [ {"step":"number","title":"string","description":"string","timeEstimate":"string","difficultyHint":"string"} ],
-  "productRecs": { "base":[{"name":"","reason":""}],"eyes":[{"name":"","reason":""}],"lips":[{"name":"","reason":""}],"cheeks":[{"name":"","reason":""}] },
-  "tips": ["string"],
-  "timeWarning": "string",
-  "styleNote": "string"
+  const s = questionnaireAnswers.makeupStyle || "";
+  const sc = questionnaireAnswers.scenario || "";
+  const sl = questionnaireAnswers.skillLevel || "";
+  const tc = questionnaireAnswers.timeCost || "";
+  return 'Beauty. JSON only. style=' + s + ' scene=' + sc + ' level=' + sl + ' time=' + tc + ' Return: {overallAdvice:string, stepByStep:[{step:string,title:string,description:string,timeEstimate:string}], productRecs:{base:[{name:string,reason:string}],eyes:[{name:string,reason:string}],lips:[{name:string,reason:string}],cheeks:[{name:string,reason:string}]}, tips:[string], styleNote:string}. Chinese, 3-5 steps, be specific.';
 }
 
-Guidelines:
-- Be specific to the user's actual face features
-- Adapt difficulty to skillLevel (新手=简单, 熟练进阶=专业)
-- Keep step count matched to timeCost (5分钟极简=3-4步, 30分钟以上精致=6-8步)
-- All text in Chinese except JSON keys
-- Be concrete: specific techniques, product types, application methods`;
+/** 补全 tier3 报告商品推荐（真实淘宝商品数据：图片/链接/价格），带预算控制。
+ *  - 幂等：已含 itemUrl 的商品跳过（重复进二层界面不会重复调淘宝）；
+ *  - 单品 4s 硬超时 + 整段 budgetMs 预算（默认 8s），避免拖垮调用方 wall-clock；
+ *  - 原地修改 report.productRecs，返回是否发生修改（供调用方决定是否落库）。
+ */
+export async function enrichTier3ProductRecs(
+  report: Record<string, unknown>,
+  env: Ctx["env"],
+  budgetMs: number = 8000
+): Promise<boolean> {
+  const recs = report.productRecs as Record<string, unknown> | undefined;
+  if (!recs || typeof recs !== "object" || Array.isArray(recs)) return false;
+  const start = Date.now();
+  let changed = false;
+  for (const dim of Object.keys(recs)) {
+    const items = recs[dim];
+    if (!Array.isArray(items)) continue;
+    for (const item of items) {
+      if (!item || typeof item !== "object") continue;
+      const rec = item as Record<string, unknown>;
+      if (rec.itemUrl) continue; // 已补全，跳过
+      if (Date.now() - start > budgetMs) break;
+      try {
+        const product = await Promise.race([
+          findProductByKeyword(String(rec.name || ""), env),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+        ]);
+        if (product) {
+          rec.imageUrl = product.imageUrl;
+          rec.price = product.price;
+          rec.itemUrl = product.itemUrl;
+          rec.shopTitle = product.shopTitle;
+          changed = true;
+        }
+      } catch { /* 单品失败不阻断 */ }
+    }
+  }
+  console.log("[tier3/enrich] elapsed=" + (Date.now() - start) + "ms, changed=" + changed);
+  return changed;
 }
 
 /** 生成 tier3 报告：可配置模型优先（agnes / DeepSeek），失败返回 null（由调用方决定是否兜底）
@@ -711,29 +711,30 @@ export async function callTier3Flexible(
   loggerPrefix = "[tier3/generate]"
 ): Promise<Record<string, unknown> | null> {
   const cfg = await getChatProviderConfig(env);
-  if (cfg.apiKey) {
-    const prompt = buildTier3Prompt(tier1Report, questionnaireAnswers);
-    // 并行竞速：Agnes 快速通道（12s 预算）与 DeepSeek 兜底同时发起，谁先给出可解析 JSON 用谁，
-    // 避免"Agnes 慢 30s + DeepSeek 再 15s"串行超时被平台 30s wall-clock 杀掉。
-    // Agnes 主通道（10s 预算）+ DeepSeek 兜底（12s 预算）并行竞速，合计最长 12s
-    const deepSeekFallback = callDeepSeekTier3Fallback(tier1Report, questionnaireAnswers, env, loggerPrefix, 12000);
-    let raw: string | null = null;
-    try {
-      const [agnesRaw] = await Promise.all([
-        callChatProvider(cfg, prompt, { maxTokens: 2000, temperature: 0.6 }, loggerPrefix + " (" + cfg.model + ")", 10000),
-      ]);
-      raw = agnesRaw;
-    } catch {}
-    let report = raw ? parseDeepseekJson(raw) : null;
-    if (report && Object.keys(report).length > 0) return report;
-    // Agnes 失败/慢/非 JSON → 用并行的 DeepSeek 结果
-    const fb = await deepSeekFallback;
-    if (fb) return fb;
+  if (!cfg.apiKey) {
+    console.warn(loggerPrefix + " no key");
+    return null;
   }
-  // 回退到 DeepSeek（Agnes 未配置 key 时直接走这里）
-  return callDeepSeekTier3Fallback(tier1Report, questionnaireAnswers, env, loggerPrefix, 12000);
+  const prompt = buildTier3Prompt(tier1Report, questionnaireAnswers);
+  const t0 = Date.now();
+  let raw: string | null = null;
+  try {
+    raw = await callChatProvider(cfg, prompt, { maxTokens: 800, temperature: 0.6 },
+      loggerPrefix + " (" + cfg.model + ")",
+      6000
+    );
+  } catch (e) {
+    console.warn(loggerPrefix + " exception: " + e);
+  }
+  if (!raw) {
+    console.warn(loggerPrefix + " null in " + (Date.now() - t0) + "ms");
+    return null;
+  }
+  const report = parseDeepseekJson(raw);
+  if (report && Object.keys(report).length > 0) return report;
+  console.warn(loggerPrefix + " parse fail len=" + raw.length + " sample=" + raw.slice(0, 100));
+  return null;
 }
-
 /** DeepSeek 兜底（单次 15s 调用，不重试；tier3 竞速阶段预算内必须命中） */
 async function callDeepSeekTier3Fallback(
   tier1Report: Record<string, unknown>,

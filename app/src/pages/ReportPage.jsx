@@ -190,11 +190,12 @@ function InfluencerMatchCard() {
 }
 
 
-function Tier3Report({ content, onRefresh, onShare, shareLoading, shareDone, photoUrl }) {
+function Tier3Report({ content, onRefresh, onShare, shareLoading, shareDone, photoUrl, enrichPending, aiImageUrl, showAiImage }) {
   const { overallAdvice, stepByStep, productRecs, tips, timeWarning, styleNote } = content;
 
-  const hasProductRecs = productRecs && typeof productRecs === 'object' &&
-    Object.values(productRecs).some((v) => Array.isArray(v) && v.length > 0);
+const hasProductRecs = (productRecs && typeof productRecs === 'object' && Object.values(productRecs).some((v) => Array.isArray(v) && v.length > 0)) || !!enrichPending;
+  const [prodLayerOpen, setProdLayerOpen] = useState(false);
+
   const hasSteps = Array.isArray(stepByStep) && stepByStep.length > 0;
   const hasTips = Array.isArray(tips) && tips.length > 0;
 
@@ -293,38 +294,52 @@ function Tier3Report({ content, onRefresh, onShare, shareLoading, shareDone, pho
       )}
 
       {/* 推荐产品 */}
-      {hasProductRecs && (
+      {(hasProductRecs || enrichPending) && (
         <div className="t3-card">
-          <h2 className="t3-card-title">💄 高匹配用品</h2>
-          <div className="t3-products">
-            {Object.entries(productRecs).map(([dim, recs]) => {
-              if (!Array.isArray(recs) || recs.length === 0) return null;
-              return (
-                <div key={dim} className="t3-prod-group">
-                  <span className="t3-prod-group-label">{T3_PROD_GROUP_LABELS[dim] || dim}</span>
-                  <div className="t3-prod-list">
-                    {recs.map((rec, j) => {
-                      const name = typeof rec === 'string' ? rec : rec.name;
-                      const reason = typeof rec === 'string' ? '' : rec.reason;
-                      return (
-                        <div key={j} className="t3-prod-item">
-                          {rec.imageUrl && <img src={rec.imageUrl} alt={name} className="t3-prod-img" />}
-                          <div className="t3-prod-info">
-                            <span className="t3-prod-name">{name}</span>
-                            {reason ? <span className="t3-prod-reason">💡 {reason}</span> : null}
-                            {rec.price != null && rec.price > 0 && <span className="t3-prod-price">💰 {rec.price} 元</span>}
-                          </div>
-                          {rec.itemUrl && (
-                            <a className="t3-prod-link" href={rec.itemUrl} target="_blank" rel="noopener noreferrer">淘宝查看 ↗</a>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <h2 className="t3-card-title">💄 高匹配用品</h2>
+            <button type="button" onClick={() => setProdLayerOpen((v) => !v)} style={{ border: 'none', background: '#fff7f0', color: '#c2452e', fontSize: 12, padding: '6px 10px', borderRadius: 8, cursor: 'pointer' }}>
+              {prodLayerOpen ? '收起 ▴' : '💡 查看推荐商品 ▾'}
+            </button>
           </div>
+          {prodLayerOpen ? (
+            <div className="t3-products">
+              {Object.entries(productRecs).map(([dim, recs]) => {
+                if (!Array.isArray(recs) || recs.length === 0) { if (enrichPending) return <div key={dim} className="t3-prod-group"><span className="t3-prod-group-label">{T3_PROD_GROUP_LABELS[dim] || dim}</span><div className="t3-prod-pending">正在匹配中…</div></div>; return null; }
+                return (
+                  <div key={dim} className="t3-prod-group">
+                    <span className="t3-prod-group-label">{T3_PROD_GROUP_LABELS[dim] || dim}</span>
+                    <div className="t3-prod-list">
+                      {recs.map((rec, j) => {
+                        const name = typeof rec === 'string' ? rec : rec.name;
+                        const reason = typeof rec === 'string' ? '' : rec.reason;
+                        const enriched = !!(rec.itemUrl || rec.imageUrl || (rec.price != null && rec.price > 0));
+                        return (
+                          <div key={j} className="t3-prod-item">
+                            {rec.imageUrl ? <img src={rec.imageUrl} alt={name} className="t3-prod-img" /> : <div className="t3-prod-img" style={{ background: '#f3ece7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#b6a8a0' }}>🛍</div>}
+                            <div className="t3-prod-info">
+                              <span className="t3-prod-name">{name}</span>
+                              {reason ? <span className="t3-prod-reason">💡 {reason}</span> : null}
+                              {enriched ? (
+                                rec.price != null && rec.price > 0 ? <span className="t3-prod-price">💰 {rec.price} 元</span> : null
+                              ) : (
+                                <span style={{ fontSize: 12, color: '#b6a8a0', opacity: enrichPending ? 1 : 0.85 }}>{enrichPending ? '正在匹配中…' : '暂无匹配商品'}</span>
+                              )}
+                            </div>
+                            {rec.itemUrl ? (
+                              <a className="t3-prod-link" href={rec.itemUrl} target="_blank" rel="noopener noreferrer">淘宝查看 ↗</a>
+                            ) : enrichPending ? null : <span style={{ fontSize: 12, color: '#c9b8ac' }}>—</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p style={{ fontSize: 13, color: '#8a7f76', margin: '8px 0 0' }}>点击「💡 查看推荐商品」展开为你匹配的高契合单品</p>
+          )}
         </div>
       )}
 
@@ -417,6 +432,8 @@ export default function ReportPage() {
   const [btnColor, setBtnColor] = useState("#000000");
   // Tier3 state
   const [tier3TokenStatus, setTier3TokenStatus] = useState(null);
+  const tier3TokenStatusRef = useRef(tier3TokenStatus);
+  useEffect(() => { tier3TokenStatusRef.current = tier3TokenStatus; }, [tier3TokenStatus]);
   const [tier3QuestionnaireOptions, setTier3QuestionnaireOptions] = useState(null);
   const [tier3ShowQuestionnaire, setTier3ShowQuestionnaire] = useState(false);
   const [tier3Answers, setTier3Answers] = useState({});
@@ -424,6 +441,12 @@ export default function ReportPage() {
   useEffect(() => { tier3AnswersRef.current = tier3Answers; }, [tier3Answers]);
   const [tier3Generating, setTier3Generating] = useState(false);
   const [tier3Content, setTier3Content] = useState(null);
+  // 两步交互：报告生成完先收起，点“查看报告”才展开（二层=点灯泡才显示商品）
+  const [tier3ReportViewOpen, setTier3ReportViewOpen] = useState(false);
+  const [tier3ReportId, setTier3ReportId] = useState(null);
+  const [tier3EnrichPending, setTier3EnrichPending] = useState(false);
+  const tier3EnrichFiredRef = useRef(null); // 记录已触发 enrich-products 的报告 id，避免重复
+
   // 个人中心：最新一份专属（tier3）报告简要信息（专属页 scenario 回退等）
   const [myTier3, setMyTier3] = useState(null);
   const [myTier3Archives, setMyTier3Archives] = useState([]); // 个人中心：全部专属报告档案（每份独立，不互相覆盖）
@@ -709,6 +732,15 @@ const tier3PhotoKeyLiveRef = useRef(null);
     }).catch(() => { /* 查询失败不阻断 */ });
     return () => { cancelled = true; };
   }, [activeTab, token]);
+    // fix: auto-open READY card when no token, no points-unlock, quiz not open
+    useEffect(() => {
+      if (!token) return;
+      if (activeTab !== '专属') return;
+      if (tier3TokenStatus && !tier3ShowQuestionnaire && !tier3Content && !tier3PointsUnlocked) {
+        setTier3ShowQuestionnaire(true);
+      }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tier3TokenStatus, token, activeTab]);
 
   // 个人中心：加载用户的全部专属（tier3）报告档案（纯新增：每生成一份都是一条独立档案，不互相覆盖）
   useEffect(() => {
@@ -741,6 +773,11 @@ const tier3PhotoKeyLiveRef = useRef(null);
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) setArchiveDetail(data);
+        // Step 2：二层界面进入时按需补全淘宝商品（幂等；已补全则秒回，失败不影响报告主体）
+        fetch(BASE + '/tier3/enrich-products', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ reportId: archiveOpenId }) })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((en) => { if (!cancelled && en && en.productRecs) setArchiveDetail((prev) => (prev && prev.id === archiveOpenId ? { ...prev, content: { ...(prev.content || {}), productRecs: en.productRecs } } : prev)); })
+          .catch(() => {});
       } catch {}
       if (!cancelled) setArchiveDetailLoading(false);
     })();
@@ -775,12 +812,37 @@ const tier3PhotoKeyLiveRef = useRef(null);
           setTier3Error(data?.error || '请求失败 ' + res.status);
         }
       } else {
-        setTier3Content(data.content);
+                // 若 AI 未给出具体商品名（productRecs 各维度为空），补一套默认品类骨架，
+        // 保证二层「查看推荐商品」有内容可匹配；已命名则保持 AI 原样
+        let finalContent = data.content || {};
+        const recs = finalContent.productRecs;
+        const isEmptyRecs = !recs || Object.keys(recs).length === 0 ||
+          Object.values(recs).every((v) => !Array.isArray(v) || v.length === 0);
+        if (isEmptyRecs) {
+          finalContent = {
+            ...finalContent,
+            productRecs: {
+              base: [{ name: "气垫粉底", reason: "轻薄持妆，通勤百搭" }],
+              eyes: [{ name: "大地色眼影盘", reason: "自然提神" }, { name: "眼线胶笔", reason: "放大眼睛" }],
+              lips: [{ name: "豆沙色唇釉", reason: "提升气色" }],
+              cheeks: [{ name: "膏状腮红", reason: "自然红润" }],
+            },
+          };
+        }
+        setTier3Content(finalContent);
+
+        // Step 2：报告主体已出，二层商品按需补全（幂等；失败不阻断展示）
+        if (data.id) {
+          fetch(BASE + '/tier3/enrich-products', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ reportId: data.id }) })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((en) => { if (en && en.productRecs) setTier3Content((prev) => (prev ? { ...prev, productRecs: en.productRecs } : prev)); })
+            .catch(() => {});
+        }
         setTier3ContentPhotoUrl(tier3PhotoKeyLiveRef.current ? "/api/r2-proxy?key=" + encodeURIComponent(tier3PhotoKeyLiveRef.current) + "&bucket=temp" : null);
         setTier3TokenStatus({ hasToken: false, count: 0 });
       }
     } catch (e) {
-      setTier3Error('网络异常，请重试');
+      setTier3Error('生成超时或服务异常，请点下方按钮重试');
     } finally {
       setTier3Generating(false);
     }
@@ -818,7 +880,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
         setTier3Error(result.reason || '积分不足或扣减失败，请重试');
       }
     } catch {
-      setTier3Error('网络异常，请重试');
+      setTier3Error('积分扣减失败，请重试');
     } finally {
       setTier3PointsConsume(false);
     }
@@ -892,6 +954,11 @@ const tier3PhotoKeyLiveRef = useRef(null);
     setTier3CurrentQuestionIndex((prev) => Math.max(0, prev - 1));
   }, []);
   const handleTier3DoSubmit = useCallback(async () => {
+    // 新一轮生成：收起已展开的报告，重置报告 id 与补全状态
+    setTier3ReportViewOpen(false);
+    setTier3ReportId(null);
+    setTier3EnrichPending(false);
+    tier3EnrichFiredRef.current = null;
     if (tier3Generating || !token) {
         return;
     }
@@ -907,7 +974,16 @@ const tier3PhotoKeyLiveRef = useRef(null);
       setTier3Error('请先上传照片');
       return;
     }
-    if (!tier3TokenStatus?.hasToken && !tier3PointsGrantedRef.current && !tier3PointsUnlocked) {
+    // refresh token status from server to avoid stale hasToken after purchase
+    try {
+      const freshRes = await fetch(BASE + "/tier3/token-status", { headers: { Authorization: "Bearer " + token } });
+      if (freshRes.ok) {
+        const freshData = await freshRes.json();
+        setTier3TokenStatus(freshData);
+        if (freshData.hasToken) tier3TokenStatusRef.current = freshData;
+      }
+    } catch {}
+    if (!(tier3TokenStatusRef.current?.hasToken) && !tier3PointsGrantedRef.current && !tier3PointsUnlocked) {
       setTier3Error('token 已耗尽，请购买或使用兑换码/积分后重试');
       return;
     }
@@ -937,9 +1013,38 @@ const tier3PhotoKeyLiveRef = useRef(null);
           setTier3Error(data?.error || '请求失败 ' + res.status);
         }
       } else {
-            setTier3Content(data.content);
+        // 若 AI 未给出具体商品名（productRecs 各维度为空），补一套默认品类骨架，
+        // 保证二层「查看推荐商品」有内容可匹配；已命名则保持 AI 原样
+        let finalContent = data.content || {};
+        const recs = finalContent.productRecs;
+        const isEmptyRecs = !recs || Object.keys(recs).length === 0 ||
+          Object.values(recs).every((v) => !Array.isArray(v) || v.length === 0);
+        if (isEmptyRecs) {
+          finalContent = {
+            ...finalContent,
+            productRecs: {
+              base: [{ name: "气垫粉底", reason: "轻薄持妆，通勤百搭" }],
+              eyes: [{ name: "大地色眼影盘", reason: "自然提神" }, { name: "眼线胶笔", reason: "放大眼睛" }],
+              lips: [{ name: "豆沙色唇釉", reason: "提升气色" }],
+              cheeks: [{ name: "膏状腮红", reason: "自然红润" }],
+            },
+          };
+        }
+        setTier3Content(finalContent);
         setTier3ContentPhotoUrl(tier3PhotoKeyLiveRef.current ? "/api/r2-proxy?key=" + encodeURIComponent(tier3PhotoKeyLiveRef.current) + "&bucket=temp" : null);
         setTier3TokenStatus({ hasToken: false, count: 0 });
+        // 记住报告 id + 收起“查看报告”态；生成完立即后台补全淘宝商品（点灯泡时有数据，不卡）
+        setTier3ReportId(data.id || null);
+        setTier3ReportViewOpen(false);
+        if (data.id && tier3EnrichFiredRef.current !== data.id) {
+          tier3EnrichFiredRef.current = data.id;
+          setTier3EnrichPending(true);
+          fetch(BASE + '/tier3/enrich-products', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ reportId: data.id }) })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((en) => { if (en && en.productRecs) setTier3Content((prev) => (prev ? { ...prev, productRecs: en.productRecs } : prev)); })
+            .catch(() => {})
+            .finally(() => setTier3EnrichPending(false));
+        }
         // 本次生成已消耗资格（积分/tokens 各扣各的），清掉内存态；
         // tier3PointsUnlocked 保留 true：本报告的积分解锁资格已落库，刷新后仍显示"已解锁"。
         tier3PointsGrantedRef.current = false;
@@ -947,7 +1052,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
         if (typeof data.balance === 'number') setTier3PointsBalance(data.balance);
       }
     } catch (e) {
-        setTier3Error('网络异常，请重试');
+        setTier3Error('生成超时或服务异常，请点下方按钮重试');
     } finally {
       setTier3Generating(false);
     }
@@ -1022,6 +1127,20 @@ const tier3PhotoKeyLiveRef = useRef(null);
     } catch { setTier3Error('网络异常，请重试'); }
     finally { setTier3Redeeming(false); }
   }, [tier3RedeemCode, tier3Redeeming, token]);
+
+  // 点“查看报告”：展开二层报告 + 若尚未触发则立即补全淘宝商品（兜底：正在匹配中…）
+  const handleTier3ViewReport = useCallback(() => {
+    setTier3ReportViewOpen(true);
+    if (tier3ReportId && tier3EnrichFiredRef.current !== tier3ReportId) {
+      tier3EnrichFiredRef.current = tier3ReportId;
+      setTier3EnrichPending(true);
+      fetch(BASE + '/tier3/enrich-products', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ reportId: tier3ReportId }) })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((en) => { if (en && en.productRecs) setTier3Content((prev) => (prev ? { ...prev, productRecs: en.productRecs } : prev)); })
+        .catch(() => {})
+        .finally(() => setTier3EnrichPending(false));
+    }
+  }, [tier3ReportId, token]);
 
   const handleTier3Refresh = useCallback(async () => {
     setTier3Content(null);
@@ -1449,17 +1568,26 @@ const tier3PhotoKeyLiveRef = useRef(null);
             {!tier3TokenStatus ? (
               <div className="report-loading">加载中...</div>
             ) : tier3Content ? (
-              <Tier3Report
-              photoUrl={tier3ContentPhotoUrl || (myTier3 && myTier3.photoUrl)}
-              aiImageUrl={tier3AiImageUrl}
-              showAiImage={tier3ShowAiImage}
-              content={{ ...tier3Content, _scenario: tier3Answers.scenario || (myTier3 && myTier3.scenario) || '今日妆容' }}
-              onRefresh={handleTier3Refresh}
-              onShare={handleShareTier3}
-              shareLoading={shareLoading}
-              shareDone={shareDone}
-            />
-            ) : (!tier3TokenStatus.hasToken && !tier3PointsGrantedRef.current && !tier3PointsUnlocked) ? (
+              tier3ReportViewOpen ? (
+                <Tier3Report
+                photoUrl={tier3ContentPhotoUrl || (myTier3 && myTier3.photoUrl)}
+                aiImageUrl={tier3AiImageUrl}
+                showAiImage={tier3ShowAiImage}
+                content={{ ...tier3Content, _scenario: tier3Answers.scenario || (myTier3 && myTier3.scenario) || '今日妆容' }}
+                onRefresh={handleTier3Refresh}
+                onShare={handleShareTier3}
+                shareLoading={shareLoading}
+                shareDone={shareDone}
+                enrichPending={tier3EnrichPending}
+              />
+              ) : (
+                <div className="t3-view-report-wrap" style={{ textAlign: 'center', padding: '24px 16px' }}>
+                  <p style={{ color: '#8a7f76', fontSize: 14, marginBottom: 16 }}>你的专属方案已生成 ✓</p>
+                  <button className="t3-cta-btn" onClick={handleTier3ViewReport} style={{ width: '100%', maxWidth: 280, margin: '0 auto', display: 'block' }}>📄 查看报告</button>
+                  {tier3EnrichPending ? <p style={{ color: '#b6a8a0', fontSize: 12, marginTop: 12 }}>正在匹配商品…</p> : null}
+                </div>
+              )
+            ) : !tier3ShowQuestionnaire ? (
               <div className="t3-unlock">
                 <div className="t3-unlock-hero">
                   <div className="t3-unlock-badge">✦ PREMIUM REPORT ✦</div>
@@ -1671,6 +1799,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
                                 <Tier3Report
                                   content={{ ...archiveDetail.content, _scenario: archiveDetail.scenario || a.scenario || "今日妆容" }}
                                   photoUrl={archiveDetail.photoUrl}
+                                  enrichPending={tier3EnrichPending}
                                 />
                               ) : (
                                 <p className="pc-report-detail-loading">无法加载该报告详情</p>

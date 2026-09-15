@@ -1,6 +1,9 @@
 // POST /api/points/grant-tier3
-// 直连中枢用户态接口 /api/points/grant-tier3（当前登录用户自己的 JWT，中枢按 user_id 发放，一人一次去重）。
+// 直连中枢用户态接口 /api/points/grant-tier3（当前登录用户自己的 JWT，中枢按 user_id 发放，按 related_id 幂等去重）。
+// 请求体 {amount, related_id}：amount 服务端写死（专属报告生成赠送固定 1 积分，防改价）；
+// related_id 取前端透传的 tier3 报告ID（body.reportId，即生成时返回的报告 id），缺省用 'tier3_grant_' + 时间戳兜底。
 const AUTH_CENTER_BASE = 'https://auth.meijian.top';
+const TIER3_GRANT_AMOUNT = 1;
 
 export const onRequestPost = async (context) => {
   const { request } = context;
@@ -11,11 +14,16 @@ export const onRequestPost = async (context) => {
       status: 401, headers: { 'Content-Type': 'application/json' },
     });
   }
+  let relatedId = 'tier3_grant_' + Date.now();
+  try {
+    const body = await request.json().catch(() => ({}));
+    if (body && body.reportId) relatedId = String(body.reportId).slice(0, 128);
+  } catch {}
   try {
     const res = await fetch(AUTH_CENTER_BASE + '/api/points/grant-tier3', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-      body: '{}',
+      body: JSON.stringify({ amount: TIER3_GRANT_AMOUNT, related_id: relatedId }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {

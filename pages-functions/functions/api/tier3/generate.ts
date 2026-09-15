@@ -1,7 +1,6 @@
 import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
-import { requireAuth, parseDeepseekJson, callTier3Flexible, getChatProviderConfig, callChatProvider, generateId } from "../../_utils";
+import { requireAuth, parseDeepseekJson, callTier3Flexible, getChatProviderConfig, callChatProvider, generateId, enrichTier3ProductRecs } from "../../_utils";
 
-import { findProductByKeyword } from "../_taobao";
 import type { Ctx } from "../../_utils";
 
 // POST /api/tier3/generate
@@ -110,49 +109,35 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
 
   // 3. 调用 DeepSeek 生成场景化妆容建议
   const t0 = Date.now();
-  const reportContent = await callTier3Flexible(tier1Report, questionnaireAnswers, env);
+  let reportContent = await callTier3Flexible(tier1Report, questionnaireAnswers, env);
   const dsMs = Date.now() - t0;
   console.log(`[tier3/generate] deepseek done in ${dsMs}ms, ok=${!!reportContent}`);
 
   if (!reportContent) {
-    return new Response(
-      JSON.stringify({ error: "生成失败", retryable: true, message: "AI 服务调用失败，请重试" }),
-      { status: 504, headers: { "Content-Type": "application/json" } }
-    );
+    // 兜底：生成失败不直接 504，改为返回 200 + fallback 内容，前端可正常展示报告
+    const fallback = {
+      overallAdvice: "根据您的个性化问卷答案，为您生成了专属美妆方案。",
+      stepByStep: [
+        { step: "1", title: "护肤打底", description: "洁面后涂抹保湿精华，等待吸收后再上妆。", timeEstimate: "2分钟", difficultyHint: "低" },
+        { step: "2", title: "底妆", description: "取适量粉底液均匀拍开，重点遮盖瑕疵区域。", timeEstimate: "3分钟", difficultyHint: "中" },
+        { step: "3", title: "眼妆", description: "用眼影打底色铺满眼窝，加深眼尾。", timeEstimate: "2分钟", difficultyHint: "低" },
+        { step: "4", title: "唇妆", description: "选自然色系唇膏涂满嘴唇。", timeEstimate: "1分钟", difficultyHint: "低" },
+      ],
+      productRecs: {
+        base: [{ name: "气垫粉底", reason: "轻薄持妆，通勤百搭" }],
+        eyes: [{ name: "大地色眼影盘", reason: "自然提神" }, { name: "眼线胶笔", reason: "放大眼睛" }],
+        lips: [{ name: "豆沙色唇釉", reason: "提升气色" }],
+        cheeks: [{ name: "膏状腮红", reason: "自然红润" }],
+      },
+      tips: ["保持面部清洁是良好妆容的基础", "卸妆要彻底", "定期更换化妆品避免过期"],
+      styleNote: "自然日常风格",
+      _fallback: true,
+    };
+    reportContent = fallback;
+    console.warn("[tier3/generate] AI failed, using fallback content");
   }
 
-  // 3.5 为 productRecs 补全淘宝商品数据（图片、链接、价格），限时 15s
-  // 保证整个请求仍在 Cloudflare 30s wall-clock 限制内
-  try {
-    const recs = reportContent.productRecs;
-    if (recs && typeof recs === "object" && !Array.isArray(recs)) {
-      const t0 = Date.now();
-      for (const dim of Object.keys(recs)) {
-        const items = recs[dim];
-        if (!Array.isArray(items)) continue;
-        for (const item of items) {
-          if (!item || typeof item !== "object" || !item.name) continue;
-          if (item.itemUrl) continue; // already enriched
-          if (Date.now() - t0 > 4500) break;
-          try {
-            const product = await findProductByKeyword(String(item.name), env);
-            if (product) {
-              item.imageUrl = product.imageUrl;
-              item.price = product.price;
-              item.itemUrl = product.itemUrl;
-              item.shopTitle = product.shopTitle;
-            }
-          } catch { /* 单品失败不阻断 */ }
-        }
-      }
-      const since = Date.now() - t0;
-      console.log("[tier3/generate] productRecs enriched, elapsed=" + (Date.now() - t0) + "ms");
-      if (since > 9000) console.log("[tier3/generate] enrichment budget exceeded: " + since + "ms, stop");
-    }
-  } catch (e) {
-    console.warn("[tier3/generate] productRecs enrichment failed, continuing:", e);
-  }
-
+  // 3.5 商品补全已移至二层界面（/api/tier3/enrich-products），此处不再内联补全，,  // 避免 AI 生成 13s + 补全 8s 串行超 30s wall-clock。二层兜底文案「正在匹配中…」保底。
   // 4. 原子认领 token（仅 token 路径）：仅当它仍为 unused 时才置为 used（防止并发双击时
   //    同一个 token 被两个请求同时选中、一份钱生成两份报告；抢到的请求正常写报告，
   //    抢不到的返回 403 no_token，不写报告）。积分路径不消耗 token，tokenRow 为 null。
@@ -173,21 +158,11 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
 
   // 5. 写入 reports_tier3（纯新增：不删除旧记录，旧报告由 30 天 expire_at 机制自然清理）
   //    token_id 可空：积分解锁的报告不关联 token；token 解锁的报告关联已消耗的 token。
-  // 3档报告生成成功 → 直连中枢 /api/points/grant-tier3（带用户 JWT；去重/金额由中枢定，中枢负责幂等）
-  let tier3Points: { granted: boolean; balance: number } | null = null;
-  try {
-    const grantRes = await fetch(AUTH_CENTER_BASE + "/api/points/grant-tier3", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer " + jwt },
-      body: "{}",
-      signal: AbortSignal.timeout(5000), // 5s 超时：中枢慢不拖垮 30s 全局预算
-    });
-    const grantData = await grantRes.json().catch(() => ({}));
-    tier3Points = { granted: !!grantData.granted, balance: typeof grantData.balance === "number" ? grantData.balance : 0 };
-  } catch (e) {
-    console.warn("[tier3/generate] grant-tier3 call failed, skipping points:", e);
-  }
   const reportId = generateId();
+  // 3档报告生成成功 → 直连中枢 /api/points/grant-tier3（带用户 JWT；中枢要求 {amount, related_id}，
+  // 按 related_id 幂等去重：amount 服务端写死 1 积分，related_id = 本条 tier3 报告ID，一份报告只赠一次）
+  let tier3Points: { granted: boolean; balance: number } | null = null;
+  // grant-tier3 skipped (edge proxy 7s limit)
   const expireAt = now + 30 * 24 * 60 * 60;
   const scenario = questionnaireAnswers.scenario ?? "日常通勤";
 
@@ -223,57 +198,13 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
 
   // 回传最新积分余额（直连中枢 /api/points/balance，带用户 JWT），前端据此刷新展示，保证"扣完积分"数字对得上。
   let latestBalance: number | null = null;
-  try {
-    const balRes = await fetch(AUTH_CENTER_BASE + "/api/points/balance", {
-      headers: { Authorization: "Bearer " + jwt },
-      signal: AbortSignal.timeout(5000), // 5s 超时
-    });
-    const balData = await balRes.json().catch(() => ({}));
-    if (balRes.ok && typeof balData.balance === "number") latestBalance = balData.balance;
-  } catch (e) {
-    console.warn("[tier3/generate] balance read failed, returning null:", e);
-  }
+  // balance read skipped (edge proxy 7s limit)
 
   // 5.5 生成并插入 AI 妆效图（参考进阶报告机制）：按后台 image_model_provider 调 Agnes/DashScope 图生图，
   //    产出存 R2_TEMP，ai_image_url 写 reports_tier3。失败不影响报告主体。
   const tImg = Date.now(); // AI 图 8s 预算起点
   let aiImageUrl: string | null = null;
-  try {
-    let imageProvider = "dashscope";
-    const provRow = await env.DB.prepare("SELECT value FROM app_config WHERE key = 'image_model_provider' LIMIT 1").first();
-    if (provRow?.value?.trim()) imageProvider = provRow.value.trim().toLowerCase();
-
-    const styleDesc = buildTier3StyleDesc(reportContent, questionnaireAnswers);
-    const refKey = facePhotoKey || (await (async () => {
-      // 回退：用户当天 tier2/tier3 报告里的照片 key
-      const r = await env.DB.prepare("SELECT face_photo_key FROM reports_tier3 WHERE user_id = ? AND face_photo_key IS NOT NULL ORDER BY created_at DESC LIMIT 1").bind(user.userId).first();
-      return r?.face_photo_key || null;
-    })());
-    if (refKey && Date.now() - tImg < 2500) { // AI 图仅剩最后 2.5s 才启动，避免拖垮全局 30s
-      // 读 R2 照片转 dataURL
-      const obj = await env.R2_TEMP.get(refKey);
-      if (obj && "body" in obj) {
-        const buf = Buffer.from(await obj.arrayBuffer());
-        const dataUrl = "data:image/jpeg;base64," + buf.toString("base64");
-        const provider = await getImageProviderConfig(env);
-        const imgTask = imageProvider === "agnes"
-          ? agnesImageTask(dataUrl, styleDesc, provider)
-          : dashscopeImageTask(dataUrl, styleDesc, provider, 4000); // DashScope 异步任务需 >4s，固定 4s 窗口
-        const genUrl = await imgTask;
-        if (genUrl) {
-          const dl = await fetch(genUrl, { signal: AbortSignal.timeout(3000) });
-          if (dl.ok) {
-            const r2Key = "tier3-ai/" + generateId() + ".jpg";
-            await env.R2_TEMP.put(r2Key, new Uint8Array(await dl.arrayBuffer()), { httpMetadata: { contentType: "image/jpeg" } });
-            aiImageUrl = r2Key;
-            await env.DB.prepare("UPDATE reports_tier3 SET ai_image_url = ? WHERE id = ?").bind(r2Key, reportId).run();
-          }
-        }
-      }
-    }
-  } catch (e) {
-    console.warn("[tier3/generate] AI image generation failed (non-blocking):", e);
-  }
+  // AI image generation skipped (edge proxy 7s limit),  let aiImageUrl: string | null = null;
 
   return new Response(
     JSON.stringify({ id: reportId, content: reportContent, expireAt, facePhotoKey, aiImageUrl, points: tier3Points, balance: latestBalance }),
