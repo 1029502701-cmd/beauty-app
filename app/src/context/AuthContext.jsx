@@ -1,35 +1,30 @@
 import { createContext, useState, useEffect, useCallback } from 'react';
-import { authApi, clearTokenInvalidFlag } from '../api.js';
+import { authApi, cookieHasValidToken, clearTokenInvalidFlag } from '../api.js';
 
 export const AuthContext = createContext(null);
 
-const STORAGE_KEY = 'session_token';
-const HAS_PW_KEY = 'has_password';
-
-function getToken() { return localStorage.getItem(STORAGE_KEY); }
-function setToken(token) {
-  if (token) { localStorage.setItem(STORAGE_KEY, token); }
-  else { localStorage.removeItem(STORAGE_KEY); }
-}
-
+// 登录态不再由前端 localStorage 保存：
+// 中枢（auth.meijian.top）登录后下发的共享域 cookie 由浏览器自动携带，
+// 前端只需用后端 /auth/cookie-check（cookieHasValidToken）探测"cookie 里有没有有效 token"。
 let currentOnTokenInvalid = null;
 export function setOnTokenInvalid(fn) { currentOnTokenInvalid = fn; }
 
 export function AuthProvider({ children }) {
-  const [token, setTokenState] = useState(getToken);
+  // token 现在表示"cookie 中是否存在有效中枢登录态"（布尔语义），
+  // 保留 loading/validating 以维持下游 RequireAuth 逻辑不变。
+  const [token, setTokenState] = useState(null);
   const [loading, setLoading] = useState(true);
   const [validating, setValidating] = useState(false);
-  const [hasPassword, setHasPasswordState] = useState(() => localStorage.getItem(HAS_PW_KEY) === '1');
 
   useEffect(() => {
     void (async () => {
-      const t = getToken();
-      if (!t) { setLoading(false); return; }
       setValidating(true);
-      try { await authApi.probe(); }
-      catch (e) {
+      try {
+        const ok = await cookieHasValidToken();
+        setTokenState(ok ? 'cookie' : null);
+        if (!ok) clearTokenInvalidFlag();
+      } catch (e) {
         clearTokenInvalidFlag();
-        setToken(null);
         setTokenState(null);
         currentOnTokenInvalid?.(); // 触发 RequireAuth 立即跳中枢，避免 401 请求风暴
       } finally {
@@ -39,24 +34,20 @@ export function AuthProvider({ children }) {
     })();
   }, []);
 
-  const login = useCallback(async (newToken) => {
-    setToken(newToken);
-    setTokenState(newToken);
+  // login 保留为"标记已登录"（cookie 方案下登录态由中枢 cookie 决定，这里只用于刷新本地态）
+  const login = useCallback(async () => {
+    const ok = await cookieHasValidToken().catch(() => false);
+    setTokenState(ok ? 'cookie' : null);
   }, []);
 
   const logout = useCallback(async () => {
+    // 中枢侧清除登录态（尽力而为）；本端不再持有 token 可删
     try { await authApi.logout(); } catch {}
     clearTokenInvalidFlag();
-    setToken(null);
     setTokenState(null);
     currentOnTokenInvalid = null;
   }, []);
 
-  const setHasPassword = useCallback((val) => {
-    setHasPasswordState(val);
-    localStorage.setItem(HAS_PW_KEY, val ? '1' : '0');
-  }, []);
-
-  const value = { token, loading, validating, login, logout, hasPassword, setHasPassword };
+  const value = { token, loading, validating, login, logout };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

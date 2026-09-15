@@ -9,8 +9,11 @@
     "api/admin/influencers/:id/reject",
     "api/admin/influencers",
     "api/admin/login",
+    "api/admin/tier3-codes/generate",
+    "api/admin/tier3-codes",
     "api/admin/questionnaire-options",
     "api/auth/login-or-register",
+    "api/auth/cookie-check",
     "api/auth/login",
     "api/auth/profile",
     "api/auth/register",
@@ -66,7 +69,6 @@
     "api/tier3/questionnaire-options",
     "api/tier3/redeem",
     "api/tier3/report-id",
-    "api/tier3/token-status",
     "api/tier3/upload-photo"
   ]
 }

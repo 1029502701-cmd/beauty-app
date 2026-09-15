@@ -1,10 +1,12 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import { AuthContext, setOnTokenInvalid } from '../context/AuthContext.jsx';
 
-// 外部鉴权模式：跳中枢登录页（保留当前 URL 作为 redirect，登录后回跳）
+// 跳中枢登录（保留当前完整 URL 作为 redirect，登录完回跳）。
+// local=1 时走本地登录表单（调试用），不跳中枢。
 function redirectToAuthCenter() {
   const useLocalLogin = new URL(window.location.href).searchParams.get('local') === '1';
-  if (useLocalLogin) return; // 本地调试模式不跳中枢
+  if (useLocalLogin) return;
+  sessionStorage.setItem('auth_redirect_from', window.location.href);
   const target = encodeURIComponent(window.location.href);
   window.location.href = 'https://auth.meijian.top?redirect=' + target;
 }
@@ -20,32 +22,24 @@ export default function RequireAuth({ children, fallbackPath = '/home', onNaviga
     return () => setOnTokenInvalid(null);
   }, []);
 
-  // token 失效跳转登录页
+  // 后端 401/403（cookie 里没有有效 token）→ 立即跳中枢
   useEffect(() => {
-    if (forceRedirect && onNavigate && !hasNavigatedRef.current) {
+    if (forceRedirect && !hasNavigatedRef.current) {
       hasNavigatedRef.current = true;
-      const currentPath = window.location.href;
-      if (currentPath !== '/login') {
-        sessionStorage.setItem('auth_redirect_from', currentPath);
-      }
       redirectToAuthCenter();
     }
-  }, [forceRedirect, onNavigate]);
+  }, [forceRedirect]);
 
-  // 无 token 时跳转登录页（必须在条件外，遵守 Rules of Hooks）
-  // 300ms 延迟：等 App.jsx token-effect 处理完 URL 中 ?token=... 回调再决定是否跳转，
-  // 避免抢先重定向到中枢导致回跳失败。
+  // 启动时 cookie 探测完成但无有效登录态 → 跳中枢
   useEffect(() => {
-    if (token || loading || validating || !onNavigate || window.location.pathname === '/login') return;
+    if (token || loading || validating) return;
     const timer = setTimeout(() => {
       if (hasNavigatedRef.current) return;
       hasNavigatedRef.current = true;
-      const origUrl = window.location.href;
-      sessionStorage.setItem('auth_redirect_from', origUrl);
       redirectToAuthCenter();
     }, 300);
     return () => clearTimeout(timer);
-  }, [token, loading, validating, onNavigate]);
+  }, [token, loading, validating]);
 
   if (loading || validating) {
     return <div className="loading">加载中...</div>;
