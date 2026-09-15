@@ -76,21 +76,22 @@ jobs:
           npx wrangler pages deploy ./dist --project-name=beauty-api-pages --branch=master --skip-caching
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+
   cf-audit:
     runs-on: ubuntu-latest
     steps:
-      - name: List Pages projects (raw response)
+      - name: List Pages projects and deployments
         run: |
-          echo "=== Pages projects (235c8c47) ==="
+          echo "=== Pages projects ==="
           curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/235c8c471fbed899968bedeb565015cf/pages/projects?per_page=50"
+            "https://api.cloudflare.com/client/v4/accounts/235c8c471fbed899968bedeb565015cf/pages/projects"
           echo ""
-          echo "=== Zones in account (235c8c47) ==="
+          echo "=== Latest deployments for beauty-api-pages ==="
           curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/235c8c471fbed899968bedeb565015cf/zones?per_page=50"
+            "https://api.cloudflare.com/client/v4/accounts/235c8c471fbed899968bedeb565015cf/pages/projects/beauty-api-pages/deployments?per_page=5"
           echo ""
-          echo "=== meijian.top zone lookup ==="
+          echo "=== Project details ==="
           curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/zones?name=meijian.top&per_page=5"
+            "https://api.cloudflare.com/client/v4/accounts/235c8c471fbed899968bedeb565015cf/pages/projects/beauty-api-pages"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
