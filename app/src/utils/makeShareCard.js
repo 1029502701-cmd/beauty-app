@@ -12,11 +12,8 @@ function isNativeCapacitor() {
  * @param {string} token session token
  * @returns {Promise<{inviteCode:string, invitedCount:number}|null>}
  */
-export async function fetchInviteInfo(token) {
-  if (!token) return null;
-  const res = await fetch('/api/invite/mine', {
-    headers: { Authorization: 'Bearer ' + token },
-  });
+export async function fetchInviteInfo() {
+  const res = await fetch('/api/invite/mine', { credentials: 'include' });
   if (!res.ok) return null;
   const data = await res.json().catch(() => ({}));
   if (!data.inviteCode) return null;
@@ -31,7 +28,7 @@ export async function fetchInviteInfo(token) {
  */
 export async function composeShareCard(inviteCode) {
   const QRCode = await import('qrcode');
-  const inviteUrl = 'https://auth.meijian.top/register?invite=' + encodeURIComponent(inviteCode);
+  const inviteUrl = window.location.origin + '/register?invite=' + encodeURIComponent(inviteCode);
 
   // 生成二维码到离屏 canvas
   const qr = document.createElement('canvas');
@@ -50,9 +47,7 @@ export async function composeShareCard(inviteCode) {
     img.src = url;
   });
   const candUrls = ['/share-card-template.jpg'];
-  if (window.location.protocol.startsWith('http') && window.location.origin !== 'https://ccfu.ccwu.cc') {
-    candUrls.push('https://ccfu.ccwu.cc/share-card-template.jpg');
-  }
+  
   let tplImg;
   let lastErr;
   for (const u of candUrls) {
@@ -134,3 +129,4 @@ export async function shareImage(blob) {
     }
   }
 }
+

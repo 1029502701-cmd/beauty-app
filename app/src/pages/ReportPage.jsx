@@ -5,6 +5,10 @@ import Tier2Result from './Tier2Result.jsx';
 import { getCompliment } from './complimentMap.js';
 import { BASE, pointsApi, UNLOCK_REPORT_AMOUNT } from '../api.js';
 import { checkAndResize } from '../utils/imageResize.js';
+// 统一 cookie 鉴权 fetch（同源 /api 自动带共享域 cookie；跨源带 credentials 转发）
+async function fetchWithCookie(url, opts = {}) {
+  return fetch(url, { credentials: 'include', ...opts });
+}
 function dataUrlToBlob(dataUrl) {
   const commaIdx = dataUrl.indexOf(',');
   const base64 = dataUrl.slice(commaIdx + 1);
@@ -42,8 +46,7 @@ const TIER3_FALLBACK_OPTIONS = {
   makeupStyle: ['清透日常风', '精致约会风', '复古港风', '欧美烟熏风', '汉服古风', '职场通勤风'],
   scenario:    ['日常通勤', '约会聚会', '拍照旅行', '婚礼派对', '职场面试'],
   skillLevel:  ['新手入门', '有一定基础', '熟练进阶'],
-  timeCost:    ['5分钟极简', '15分钟日常', '30分钟以上精致'],
-};
+  timeCost:    ['5分钟极简', '15分钟日常', '30分钟以上精致']};
 
 function navigateBack() {
   window.history.pushState({}, '', '/home');
@@ -118,9 +121,8 @@ function InfluencerMatchCard() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(BASE + "/influencers/match", {
-          headers: { Authorization: "Bearer " + token },
-        });
+        const res = await fetchWithCookie(BASE + "/influencers/match", {
+          }).catch;
         if (cancelled) return;
         const data = await res.json();
         if (!res.ok) { setError(data.message || "加载失败"); return; }
@@ -366,7 +368,7 @@ const hasProductRecs = (productRecs && typeof productRecs === 'object' && Object
 
       {/* 底部：重新生成 + 分享占位（对齐进阶报告 footer） */}
       <div className="t3-footer">
-        <button className="t3-refresh-btn" onClick={onRefresh}>使用另一个 token 重新生成</button>
+        <button className="t3-refresh-btn" onClick={onRefresh}>重新生成</button>
         <button className="t3-share-btn" onClick={onShare} disabled={shareLoading}>
           {shareDone ? '✓ 已生成分享图' : '分享报告'}
         </button>
@@ -394,14 +396,9 @@ export default function ReportPage() {
   // Restore photo preview from R2 when tier1 report is loaded (key format: face-photos/{userId}/{reportId}.jpg)
   useEffect(() => {
     if (!reportId) return;
-    try {
-      const token = localStorage.getItem('session_token');
-      const userId = token ? JSON.parse(window.atob(token.split('.')[1])).user_id : null;
-      if (userId) {
-        setPreview('/api/r2-proxy?key=face-photos/' + encodeURIComponent(userId) + '/' + encodeURIComponent(reportId) + '.jpg&bucket=temp');
-      }
-    } catch {}
-  }, [reportId]);
+      /* 前端不再持有 token；照片预览改由本端接口按 reportId 解析当前用户（cookie 鉴权）*/
+      setPreview('/api/r2-proxy?key=face-photos/latest/' + encodeURIComponent(reportId) + '.jpg&bucket=temp');
+    }, [reportId]);
   const [openPhoto, setOpenPhoto] = useState(null);
   const [tier2Status, setTier2Status] = useState(null);
   const [tier2Content, setTier2Content] = useState(null);
@@ -430,10 +427,7 @@ export default function ReportPage() {
   const tier2StuckSinceRef = useRef(null); // 看门狗：processing 起始时间
   const tier2StuckRetriesRef = useRef(0); // 重新触发次数
   const [btnColor, setBtnColor] = useState("#000000");
-  // Tier3 state
-  const [tier3TokenStatus, setTier3TokenStatus] = useState(null);
-  const tier3TokenStatusRef = useRef(tier3TokenStatus);
-  useEffect(() => { tier3TokenStatusRef.current = tier3TokenStatus; }, [tier3TokenStatus]);
+  // Tier3 state（兑换码资格改由 tier3RedeemCodeUsed 承载，见下方声明）
   const [tier3QuestionnaireOptions, setTier3QuestionnaireOptions] = useState(null);
   const [tier3ShowQuestionnaire, setTier3ShowQuestionnaire] = useState(false);
   const [tier3Answers, setTier3Answers] = useState({});
@@ -456,6 +450,9 @@ export default function ReportPage() {
   const [tier3Error, setTier3Error] = useState(null);
   const [tier3RedeemCode, setTier3RedeemCode] = useState('');
   const [tier3Redeeming, setTier3Redeeming] = useState(false);
+  // 兑换码核销成功后，记住该码（code 本身），生成时传给 /tier3/generate 精确关联
+  const [tier3RedeemCodeUsed, setTier3RedeemCodeUsed] = useState(null);
+  const tier3RedeemCodeUsedRef = useRef(null);
   // 专属报告积分余额 / 扣减中标记
   const [tier3PointsBalance, setTier3PointsBalance] = useState(null);
   const [tier3PointsConsume, setTier3PointsConsume] = useState(false);
@@ -469,7 +466,7 @@ export default function ReportPage() {
   const [tier3AiImageUrl, setTier3AiImageUrl] = useState(null); // 本次报告 AI 妆效图
   const [tier3ShowAiImage, setTier3ShowAiImage] = useState(true); // 后台开关：是否显示 tier3 AI 妆效图模块
   useEffect(() => {
-    fetch(BASE + '/admin/config').then(r=>r.json()).then(d=>{
+    fetchWithCookie(BASE + '/admin/config').then(r=>r.json()).then(d=>{
       const cfg = (d.configs||[]).find(c=>c.key==='tier3_show_ai_image');
       setTier3ShowAiImage(cfg ? cfg.value !== 'false' : true);
     }).catch(()=>{});
@@ -486,7 +483,12 @@ const tier3PhotoKeyLiveRef = useRef(null);
   const [tier3CurrentQuestionIndex, setTier3CurrentQuestionIndex] = useState(0);
   const [tier3AnswerFlash, setTier3AnswerFlash] = useState(null);
   const [showArchive, setShowArchive] = useState(false);
+  const [reuploadTier1, setReuploadTier1] = useState(false);
   const tier3TimerRef = useRef(null);
+
+  const handleReuploadTier1 = useCallback(() => {
+    setReuploadTier1(true);
+  }, []);
 
   // Load tier1 report from sessionStorage (set by Capture.jsx after analysis)
   useEffect(() => {
@@ -503,9 +505,8 @@ const tier3PhotoKeyLiveRef = useRef(null);
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(BASE + '/tier1/validate?id=' + encodeURIComponent(reportId), {
-          headers: { Authorization: 'Bearer ' + token },
-        });
+        const res = await fetchWithCookie(BASE + '/tier1/validate?id=' + encodeURIComponent(reportId), {
+          }).catch;
         const data = await res.json();
         if (!cancelled) setReportValid(data.valid ?? false);
       } catch {
@@ -531,9 +532,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
     (async () => {
       try {
         const qs = reportId ? '?tier1ReportId=' + encodeURIComponent(reportId) : '';
-        const res = await fetch(BASE + '/tier2/status' + qs, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetchWithCookie(BASE + '/tier2/status' + qs);
         if (!res.ok) throw new Error('请求失败: ' + res.status);
         const data = await res.json();
         if (!cancelled) {
@@ -548,10 +547,10 @@ const tier3PhotoKeyLiveRef = useRef(null);
           if (data.generationStatus === 'pending' && data.sourceTier1ReportId) {
             setTier2Generation({ ...data, generationStatus: 'processing' });
             setTier2Status({ ...data, generationStatus: 'processing' });
-            fetch(BASE + '/tier2/generate', {
+            fetchWithCookie(BASE + '/tier2/generate', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-              body: JSON.stringify({ reportId: data.tier2ReportId }),
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reportId: data.tier2ReportId })
             }).catch(() => {});
           }
         }
@@ -579,9 +578,8 @@ const tier3PhotoKeyLiveRef = useRef(null);
       const gen = tier2GenerationRef.current;
       if (!gen?.tier2ReportId) return;
       try {
-        const res = await fetch(BASE + '/tier2/status?tier2Id=' + encodeURIComponent(gen.tier2ReportId), {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetchWithCookie(BASE + '/tier2/status?tier2Id=' + encodeURIComponent(gen.tier2ReportId), {
+          });
         if (!res.ok) throw new Error('请求失败: ' + res.status);
         const data = await res.json();
         if (aborted) return;
@@ -590,11 +588,11 @@ const tier3PhotoKeyLiveRef = useRef(null);
           if (data.sourceTier1ReportId) {
             setTier2Generation({ ...data, generationStatus: 'processing' });
             setTier2Status({ ...data, generationStatus: 'processing' });
-            fetch(BASE + '/tier2/generate', {
+            fetchWithCookie(BASE + '/tier2/generate', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-              body: JSON.stringify({ reportId: data.tier2ReportId }),
-            }).catch(() => {});
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reportId: data.tier2ReportId })
+        }).catch(() => {});
           } else {
             setTier2Generation(data);
             setTier2Status(data);
@@ -615,11 +613,11 @@ const tier3PhotoKeyLiveRef = useRef(null);
             if (data.sourceTier1ReportId && tier2StuckRetriesRef.current <= 3) {
               tier2StuckSinceRef.current = Date.now();
               console.log('[ReportPage] tier2 stuck in processing, re-triggering generation, attempt ' + tier2StuckRetriesRef.current);
-              fetch(BASE + '/tier2/generate', {
+              fetchWithCookie(BASE + '/tier2/generate', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ reportId: data.tier2ReportId }),
-              }).catch(() => {});
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reportId: data.tier2ReportId })
+        }).catch(() => {});
               return;
             }
             setTier2Generation({ ...data, generationStatus: 'failed' });
@@ -660,7 +658,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
   // Fetch tier2_btn_color from admin config on mount
   useEffect(() => {
     let cancelled = false;
-    fetch(BASE + '/config/tier2_btn_color')
+    fetchWithCookie(BASE + '/config/tier2_btn_color')
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (!cancelled && data?.value) setBtnColor(data.value);
@@ -674,29 +672,17 @@ const tier3PhotoKeyLiveRef = useRef(null);
     if (activeTab !== '专属') return;
     let cancelled = false;
     async function load() {
-      // 各请求独立兜底：任何接口失败都不置 loadError（否则整页白屏），
-      // 全部失败时置一个 tokenStatus（hasToken:false），让界面落到"购买/兑换/积分"解锁引导页
-      try {
-        const statusRes = await fetch(BASE + '/tier3/token-status', { headers: { Authorization: 'Bearer ' + token } }).catch(() => null);
-        if (statusRes && statusRes.ok && !cancelled) {
-          const statusData = await statusRes.json();
-          setTier3TokenStatus(statusData);
-        }
-      } catch { /* 忽略 */ }
+      // 各请求独立兜底：任何接口失败都不置 loadError（否则整页白屏）
       if (cancelled) return;
-      if (!tier3TokenStatus) {
-        // 兜底：token-status 失败时视为无 token，进入解锁引导页（购买/积分/兑换码仍可用）
-        setTier3TokenStatus({ hasToken: false, count: 0 });
-      }
       try {
-        const optionsRes = await fetch(BASE + '/tier3/questionnaire-options').catch(() => null);
+        const optionsRes = await fetchWithCookie(BASE + '/tier3/questionnaire-options').catch(() => null);
         if (optionsRes && optionsRes.ok && !cancelled) {
           const optionsData = await optionsRes.json();
           setTier3QuestionnaireOptions(optionsData.options || {});
         }
       } catch { /* 忽略 */ }
       try {
-        const previewRes = await fetch(BASE + '/config/tier3_preview_text').catch(() => null);
+        const previewRes = await fetchWithCookie(BASE + '/config/tier3_preview_text').catch(() => null);
         if (previewRes && previewRes.ok && !cancelled) {
           const previewData = await previewRes.json();
           setTier3PreviewText(previewData.value || '专属报告为你提供个性化深度分析，涵盖整体建议、步骤指南和推荐产品。');
@@ -732,15 +718,15 @@ const tier3PhotoKeyLiveRef = useRef(null);
     }).catch(() => { /* 查询失败不阻断 */ });
     return () => { cancelled = true; };
   }, [activeTab, token]);
-    // fix: auto-open READY card when no token, no points-unlock, quiz not open
+    // 兑换码核销成功（tier3RedeemCodeUsed 非空）时，自动进入定制问卷
     useEffect(() => {
       if (!token) return;
       if (activeTab !== '专属') return;
-      if (tier3TokenStatus && !tier3ShowQuestionnaire && !tier3Content && !tier3PointsUnlocked) {
+      if (tier3RedeemCodeUsed && !tier3ShowQuestionnaire && !tier3Content && !tier3PointsUnlocked) {
         setTier3ShowQuestionnaire(true);
       }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tier3TokenStatus, token, activeTab]);
+    }, [tier3RedeemCodeUsed, token, activeTab]);
 
   // 个人中心：加载用户的全部专属（tier3）报告档案（纯新增：每生成一份都是一条独立档案，不互相覆盖）
   useEffect(() => {
@@ -748,7 +734,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(BASE + '/tier3/content', { headers: { Authorization: 'Bearer ' + token } });
+        const res = await fetchWithCookie(BASE + '/tier3/content', { }).catch;
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled && Array.isArray(data.reports)) {
@@ -769,12 +755,12 @@ const tier3PhotoKeyLiveRef = useRef(null);
     setArchiveDetail(null);
     (async () => {
       try {
-        const res = await fetch(BASE + '/tier3/report-id?id=' + encodeURIComponent(archiveOpenId), { headers: { Authorization: 'Bearer ' + token } });
+        const res = await fetchWithCookie(BASE + '/tier3/report-id?id=' + encodeURIComponent(archiveOpenId), { }).catch;
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) setArchiveDetail(data);
         // Step 2：二层界面进入时按需补全淘宝商品（幂等；已补全则秒回，失败不影响报告主体）
-        fetch(BASE + '/tier3/enrich-products', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ reportId: archiveOpenId }) })
+        fetchWithCookie(BASE + '/tier3/enrich-products', { method: 'POST', headers: { 'Content-Type': 'application/json'}, body: JSON.stringify({ reportId: archiveOpenId }) })
           .then((r) => (r.ok ? r.json() : null))
           .then((en) => { if (!cancelled && en && en.productRecs) setArchiveDetail((prev) => (prev && prev.id === archiveOpenId ? { ...prev, content: { ...(prev.content || {}), productRecs: en.productRecs } } : prev)); })
           .catch(() => {});
@@ -795,19 +781,23 @@ const tier3PhotoKeyLiveRef = useRef(null);
     setTier3Error(null);
     setTier3Content(null);
     try {
-      const res = await fetch(BASE + '/tier3/generate', {
+      const res = await fetchWithCookie(BASE + '/tier3/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ tier1ReportId: reportId, questionnaireAnswers: tier3Answers, facePhotoKey: tier3PhotoKey || undefined }),
-      });
+        headers: { 'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          tier1ReportId: reportId,
+          questionnaireAnswers: tier3Answers,
+          facePhotoKey: tier3PhotoKey || undefined,
+          redeemCode: tier3RedeemCodeUsedRef.current || undefined})});
       const data = await res.json();
       if (res.ok && data.aiImageUrl) setTier3AiImageUrl(BASE + '/r2-proxy?key=' + encodeURIComponent(data.aiImageUrl) + '&bucket=temp');
       if (!res.ok) {
-        if (res.status === 403 && data.error === 'no_token') {
-          setTier3TokenStatus({ hasToken: false, count: 0 });
-          setTier3Error('token 已耗尽，请购买后重试');
+        if (res.status === 403 && data.error === 'no_redeem_code') {
+          setTier3RedeemCodeUsed(null);
+          tier3RedeemCodeUsedRef.current = null;
+          setTier3Error('暂无解锁资格，请使用积分或兑换码解锁后重试');
         } else if (data.retryable) {
-          setTier3Error('生成失败，token 未消耗，可重新尝试');
+          setTier3Error('生成失败，未消耗资格，可重新尝试');
         } else {
           setTier3Error(data?.error || '请求失败 ' + res.status);
         }
@@ -825,21 +815,21 @@ const tier3PhotoKeyLiveRef = useRef(null);
               base: [{ name: "气垫粉底", reason: "轻薄持妆，通勤百搭" }],
               eyes: [{ name: "大地色眼影盘", reason: "自然提神" }, { name: "眼线胶笔", reason: "放大眼睛" }],
               lips: [{ name: "豆沙色唇釉", reason: "提升气色" }],
-              cheeks: [{ name: "膏状腮红", reason: "自然红润" }],
-            },
-          };
+              cheeks: [{ name: "膏状腮红", reason: "自然红润" }]}};
         }
         setTier3Content(finalContent);
 
         // Step 2：报告主体已出，二层商品按需补全（幂等；失败不阻断展示）
         if (data.id) {
-          fetch(BASE + '/tier3/enrich-products', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ reportId: data.id }) })
+          fetchWithCookie(BASE + '/tier3/enrich-products', { method: 'POST', headers: { 'Content-Type': 'application/json'}, body: JSON.stringify({ reportId: data.id }) })
             .then((r) => (r.ok ? r.json() : null))
             .then((en) => { if (en && en.productRecs) setTier3Content((prev) => (prev ? { ...prev, productRecs: en.productRecs } : prev)); })
             .catch(() => {});
         }
         setTier3ContentPhotoUrl(tier3PhotoKeyLiveRef.current ? "/api/r2-proxy?key=" + encodeURIComponent(tier3PhotoKeyLiveRef.current) + "&bucket=temp" : null);
-        setTier3TokenStatus({ hasToken: false, count: 0 });
+        // 兑换码已消耗，清掉 redeemCodeUsed（不可重复使用）
+        setTier3RedeemCodeUsed(null);
+        tier3RedeemCodeUsedRef.current = null;
       }
     } catch (e) {
       setTier3Error('生成超时或服务异常，请点下方按钮重试');
@@ -927,11 +917,10 @@ const tier3PhotoKeyLiveRef = useRef(null);
       const blob = dataUrlToBlob(tier3Photo);
       const form = new FormData();
       form.append('photo', blob, 'tier3-photo.jpg');
-      const res = await fetch(BASE + '/tier3/upload-photo', {
+      const res = await fetchWithCookie(BASE + '/tier3/upload-photo', {
         method: 'POST',
-        headers: { Authorization: 'Bearer ' + token },
-        body: form,
-      });
+        
+        body: form});
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         setTier3PhotoError(json?.error || '照片上传失败，请重试');
@@ -974,41 +963,35 @@ const tier3PhotoKeyLiveRef = useRef(null);
       setTier3Error('请先上传照片');
       return;
     }
-    // refresh token status from server to avoid stale hasToken after purchase
-    try {
-      const freshRes = await fetch(BASE + "/tier3/token-status", { headers: { Authorization: "Bearer " + token } });
-      if (freshRes.ok) {
-        const freshData = await freshRes.json();
-        setTier3TokenStatus(freshData);
-        if (freshData.hasToken) tier3TokenStatusRef.current = freshData;
-      }
-    } catch {}
-    if (!(tier3TokenStatusRef.current?.hasToken) && !tier3PointsGrantedRef.current && !tier3PointsUnlocked) {
-      setTier3Error('token 已耗尽，请购买或使用兑换码/积分后重试');
+    // 解锁资格检查：兑换码核销成功（tier3RedeemCodeUsedRef 非空）或积分解锁（tier3PointsGranted/tier3PointsUnlocked）
+    const hasReedemCode = !!tier3RedeemCodeUsedRef.current;
+    if (!hasReedemCode && !tier3PointsGrantedRef.current && !tier3PointsUnlocked) {
+      setTier3Error('暂无解锁资格，请使用积分或兑换码解锁后重试');
       return;
     }
     setTier3Generating(true);
     setTier3Error(null);
     setTier3Content(null);
     try {
-      const usePoints = !tier3TokenStatus?.hasToken && (tier3PointsGrantedRef.current || tier3PointsUnlocked);
-      const res = await fetch(BASE + '/tier3/generate', {
+      // 兑换码路径不传 fromPoints；积分路径传 fromPoints=true
+      const usePoints = !hasReedemCode && (tier3PointsGrantedRef.current || tier3PointsUnlocked);
+      const res = await fetchWithCookie(BASE + '/tier3/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        headers: { 'Content-Type': 'application/json'},
         body: JSON.stringify({
           tier1ReportId: reportId,
           questionnaireAnswers: tier3AnswersRef.current,
           fromPoints: usePoints || undefined,
-          facePhotoKey: livePhotoKey || undefined,
-        }),
-      });
-        const data = await res.json();
+          redeemCode: tier3RedeemCodeUsedRef.current || undefined,
+          facePhotoKey: livePhotoKey || undefined})});
+      const data = await res.json();
       if (!res.ok) {
-            if (res.status === 403 && data.error === 'no_token') {
-          setTier3TokenStatus({ hasToken: false, count: 0 });
-          setTier3Error('token 已耗尽，请购买或使用兑换码/积分后重试');
+        if (res.status === 403 && (data.error === 'no_redeem_code' || data.error === 'redeem_code_used')) {
+          setTier3RedeemCodeUsed(null);
+          tier3RedeemCodeUsedRef.current = null;
+          setTier3Error('暂无解锁资格，请使用积分或兑换码解锁后重试');
         } else if (data.retryable) {
-          setTier3Error('生成失败，token 未消耗，可重新尝试');
+          setTier3Error('生成失败，未消耗资格，可重新尝试');
         } else {
           setTier3Error(data?.error || '请求失败 ' + res.status);
         }
@@ -1026,28 +1009,31 @@ const tier3PhotoKeyLiveRef = useRef(null);
               base: [{ name: "气垫粉底", reason: "轻薄持妆，通勤百搭" }],
               eyes: [{ name: "大地色眼影盘", reason: "自然提神" }, { name: "眼线胶笔", reason: "放大眼睛" }],
               lips: [{ name: "豆沙色唇釉", reason: "提升气色" }],
-              cheeks: [{ name: "膏状腮红", reason: "自然红润" }],
-            },
-          };
+              cheeks: [{ name: "膏状腮红", reason: "自然红润" }]}};
         }
         setTier3Content(finalContent);
         setTier3ContentPhotoUrl(tier3PhotoKeyLiveRef.current ? "/api/r2-proxy?key=" + encodeURIComponent(tier3PhotoKeyLiveRef.current) + "&bucket=temp" : null);
-        setTier3TokenStatus({ hasToken: false, count: 0 });
         // 记住报告 id + 收起“查看报告”态；生成完立即后台补全淘宝商品（点灯泡时有数据，不卡）
         setTier3ReportId(data.id || null);
         setTier3ReportViewOpen(false);
+        // 兑换码已消耗，清掉 redeemCodeId（不可重复使用）
+        setTier3RedeemCodeUsed(null);
+        tier3RedeemCodeUsedRef.current = null;
         if (data.id && tier3EnrichFiredRef.current !== data.id) {
           tier3EnrichFiredRef.current = data.id;
           setTier3EnrichPending(true);
-          fetch(BASE + '/tier3/enrich-products', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ reportId: data.id }) })
+          fetchWithCookie(BASE + '/tier3/enrich-products', { method: 'POST', headers: { 'Content-Type': 'application/json'}, body: JSON.stringify({ reportId: data.id }) })
             .then((r) => (r.ok ? r.json() : null))
             .then((en) => { if (en && en.productRecs) setTier3Content((prev) => (prev ? { ...prev, productRecs: en.productRecs } : prev)); })
             .catch(() => {})
             .finally(() => setTier3EnrichPending(false));
         }
-        // 本次生成已消耗资格（积分/tokens 各扣各的），清掉内存态；
+        // 本次生成已消耗资格（积分/兑换码各扣各的），清掉内存态；
         // tier3PointsUnlocked 保留 true：本报告的积分解锁资格已落库，刷新后仍显示"已解锁"。
         tier3PointsGrantedRef.current = false;
+        // 兑换码已消耗，清掉 redeemCodeId（不可重复使用）
+        setTier3RedeemCodeUsed(null);
+        tier3RedeemCodeUsedRef.current = null;
         // 生成成功后回传的最新余额（本端 generate 已 proxy 读 auth-center），刷新"扣完积分"数字
         if (typeof data.balance === 'number') setTier3PointsBalance(data.balance);
       }
@@ -1083,44 +1069,30 @@ const tier3PhotoKeyLiveRef = useRef(null);
     }, 320);
   }, [handleTier3DoSubmit, tier3CurrentQuestionIndex]);
 
-  const handleTier3Buy = useCallback(async () => {
-    if (!token) return;
-    try {
-      const res = await fetch(BASE + '/orders/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ channel: 'mock', purpose: 'token_purchase' }),
-      });
-      const data = await res.json();
-      if (res.ok && data.payUrl) {
-        var payUrl = data.payUrl + (data.payUrl.includes('?') ? '&' : '?') + 'tab=tier3';
-        if (reportId) payUrl += '&id=' + encodeURIComponent(reportId);
-        window.location.href = payUrl;
-      }
-    } catch { setTier3Error('购买失败，请重试'); }
-  }, [token]);
+  // 专属报告解锁：token 购买入口已废弃，「购买」改为跳转中枢购买积分页
+  const handleTier3Buy = useCallback(() => {
+    window.location.href = window.location.origin + '/?redirect=' + encodeURIComponent(window.location.href);
+  }, []);
 
   const handleTier3Redeem = useCallback(async () => {
     if (!tier3RedeemCode.trim() || tier3Redeeming || !token) return;
     setTier3Redeeming(true);
     setTier3Error(null);
     try {
-      const res = await fetch(BASE + '/tier3/redeem', {
+      const res = await fetchWithCookie(BASE + '/tier3/redeem', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ code: tier3RedeemCode.trim() }),
-      });
+        headers: { 'Content-Type': 'application/json'},
+        body: JSON.stringify({ code: tier3RedeemCode.trim() })});
       const data = await res.json();
       if (res.ok && data.success) {
+        // 记住核销成功的码（code 本身），生成时传给 /tier3/generate 的 redeemCode 字段
+        const usedCode = data.redeemCode || tier3RedeemCode.trim();
+        setTier3RedeemCodeUsed(usedCode);
+        tier3RedeemCodeUsedRef.current = usedCode;
         setTier3RedeemCode('');
-        // 刷新 token 状态
-        const statusRes = await fetch(BASE + '/tier3/token-status', {
-          headers: { Authorization: 'Bearer ' + token },
-        });
-        if (statusRes.ok) {
-          const statusData = await statusRes.json();
-          setTier3TokenStatus(statusData);
-        }
+        // 兑换码核销成功 → 直接进入定制问卷
+        setTier3ShowQuestionnaire(true);
+        setTier3Error(null);
       } else {
         setTier3Error(data.message || '兑换失败');
       }
@@ -1134,7 +1106,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
     if (tier3ReportId && tier3EnrichFiredRef.current !== tier3ReportId) {
       tier3EnrichFiredRef.current = tier3ReportId;
       setTier3EnrichPending(true);
-      fetch(BASE + '/tier3/enrich-products', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ reportId: tier3ReportId }) })
+      fetchWithCookie(BASE + '/tier3/enrich-products', { method: 'POST', headers: { 'Content-Type': 'application/json'}, body: JSON.stringify({ reportId: tier3ReportId }) })
         .then((r) => (r.ok ? r.json() : null))
         .then((en) => { if (en && en.productRecs) setTier3Content((prev) => (prev ? { ...prev, productRecs: en.productRecs } : prev)); })
         .catch(() => {})
@@ -1142,24 +1114,17 @@ const tier3PhotoKeyLiveRef = useRef(null);
     }
   }, [tier3ReportId, token]);
 
-  const handleTier3Refresh = useCallback(async () => {
+  const handleTier3Refresh = useCallback(() => {
     setTier3Content(null);
     setTier3Error(null);
     setTier3Answers({});
     setTier3ShowQuestionnaire(false);
-    if (token) {
-      try {
-        const res = await fetch(BASE + '/tier3/token-status', {
-          headers: { Authorization: 'Bearer ' + token },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setTier3TokenStatus(data);
-          if (data.hasToken) setTier3ShowQuestionnaire(true);
-        }
-      } catch {}
-    }
-  }, [token]);
+    // 重置为未解锁状态：界面回到积分/兑换码解锁引导页
+    setTier3PointsUnlocked(false);
+    tier3PointsGrantedRef.current = false;
+    setTier3RedeemCodeUsed(null);
+    tier3RedeemCodeUsedRef.current = null;
+  }, []);
 
   // 专属报告分享：复用用户上传的美妆分享模板，把二维码换成当前报告链接
   const handleShareTier3 = useCallback(async () => {
@@ -1172,7 +1137,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
       // 优先用报告链接，其次用注册邀请链接
       const shareUrl = reportId
         ? BASE + '/report?id=' + encodeURIComponent(reportId)
-        : (inviteCode ? 'https://auth.meijian.top/register?invite=' + encodeURIComponent(inviteCode) : window.location.href);
+        : (inviteCode ? window.location.origin + '/register?invite=' + encodeURIComponent(inviteCode) : window.location.href);
       // composeShareCard 内部用固定邀请注册链接；这里需要专属报告链接，手动合成
       const QRCode = await import('qrcode');
       const qr = document.createElement('canvas');
@@ -1185,9 +1150,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
         im.src = u;
       });
       const candUrls = ['/share-card-template.jpg'];
-      if (window.location.protocol.startsWith('http') && window.location.origin !== 'https://ccfu.ccwu.cc') {
-        candUrls.push('https://ccfu.ccwu.cc/share-card-template.jpg');
-      }
+      
       let tpl; let lastErr;
       for (const u of candUrls) {
         try { tpl = await loadTpl(u); break; } catch (e) { lastErr = e; }
@@ -1216,11 +1179,10 @@ const tier3PhotoKeyLiveRef = useRef(null);
     setShareLoading(true);
     setShareDone(false);
     try {
-      const res = await fetch(BASE + '/tier1/share', {
+      const res = await fetchWithCookie(BASE + '/tier1/share', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ reportId }),
-      });
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reportId })});
       if (!res.ok) {
         if (res.status === 400 || res.status === 429) {
           const errData = await res.json().catch(() => ({}));
@@ -1235,8 +1197,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
       shareUrlRef.current = shareUrl;
       const QRCode = await import('qrcode');
       await QRCode.default.toCanvas(qrCanvasRef.current, shareUrl, {
-        width: 160, margin: 1, color: { dark: '#2d2d2d', light: '#ffffff' },
-      });
+        width: 160, margin: 1, color: { dark: '#2d2d2d', light: '#ffffff' }});
       await new Promise((r) => setTimeout(r, 50));
       const html2canvas = (await import('html2canvas')).default;
       const cardEl = shareCardRef.current;
@@ -1269,11 +1230,10 @@ const tier3PhotoKeyLiveRef = useRef(null);
   const handleAdFinish = useCallback(async () => {
     setShowAd(false); setImgUnlockLoading(true);
     try {
-      const res = await fetch(BASE + '/tier2/unlock-image', {
+      const res = await fetchWithCookie(BASE + '/tier2/unlock-image', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ reportId: tier2Status?.tier2ReportId || reportId }),
-      });
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reportId: tier2Status?.tier2ReportId || reportId })});
       const data = await res.json();
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) setImgResult({ reason: 'auth_expired', message: '登录状态已过期，请重新登录' });
@@ -1313,11 +1273,10 @@ const tier3PhotoKeyLiveRef = useRef(null);
     setShowAd(false);
     setAdUnlockLoading(true);
     try {
-      const res = await fetch(BASE + '/tier2/unlock-by-ad', {
+      const res = await fetchWithCookie(BASE + '/tier2/unlock-by-ad', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({}),
-      });
+        headers: { 'Content-Type': 'application/json'},
+        body: JSON.stringify({})});
       const data = await res.json();
       if (!res.ok || data?.error === 'daily_limit_exceeded') {
         if (data?.error === 'daily_limit_exceeded') {
@@ -1346,11 +1305,10 @@ const tier3PhotoKeyLiveRef = useRef(null);
     setShowAd(false);
     setAdUnlockLoading(true);
     try {
-      const res = await fetch(BASE + '/tier2/unlock-by-ad', {
+      const res = await fetchWithCookie(BASE + '/tier2/unlock-by-ad', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({}),
-      });
+        headers: { 'Content-Type': 'application/json'},
+        body: JSON.stringify({})});
       const data = await res.json();
       if (!res.ok || data?.error === 'daily_limit_exceeded') {
         if (data?.error === 'daily_limit_exceeded') {
@@ -1390,11 +1348,10 @@ const tier3PhotoKeyLiveRef = useRef(null);
     tier2StuckRetriesRef.current = 0;
     setTier2Generation({ ...gen, generationStatus: 'processing' });
     setTier2Status({ ...gen, generationStatus: 'processing' });
-    fetch(BASE + '/tier2/generate', {
+    fetchWithCookie(BASE + '/tier2/generate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-      body: JSON.stringify({ reportId: gen.tier2ReportId }),
-    }).catch(() => {});
+      headers: { 'Content-Type': 'application/json'},
+      body: JSON.stringify({ reportId: gen.tier2ReportId })}).catch(() => {});
   }, [token]);
 
 
@@ -1488,6 +1445,29 @@ const tier3PhotoKeyLiveRef = useRef(null);
                     <p className="report-highlight-text">{highlightText}</p>
                   </div>
                 </div>
+                {reuploadTier1 ? (
+                  <>
+                    <div className="report-reupload-section">
+                      <p className="report-reupload-hint">重新上传照片后，将基于新照片生成新的初识报告</p>
+                      <button className="report-reupload-btn" onClick={() => setReuploadTier1(false)}>← 返回查看当前报告</button>
+                    </div>
+                    <CapturePhotoUpload
+                      preview={preview}
+                      compact
+                      onComplete={(rid, reportData, previewData) => {
+                        setTier1Report(reportData);
+                        setPreview(previewData || null);
+                        setReuploadTier1(false);
+                        window.history.pushState({ reportId: rid, preview: previewData }, "", "/report?id=" + encodeURIComponent(rid));
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                    />
+                  </>
+                ) : (
+                  <div className="report-reupload-section">
+                    <button className="report-reupload-btn" onClick={handleReuploadTier1}>🔄 重新上传照片</button>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -1565,7 +1545,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
         {activeTab === '专属' && (
           <div className="report-tab-content">
             {tier3LoadError && <div className="report-error"><p>{tier3LoadError}</p><button onClick={() => { setTier3LoadError(null); }}>重试</button></div>}
-            {!tier3TokenStatus ? (
+            {tier3PreviewLoading ? (
               <div className="report-loading">加载中...</div>
             ) : tier3Content ? (
               tier3ReportViewOpen ? (
@@ -1604,8 +1584,9 @@ const tier3PhotoKeyLiveRef = useRef(null);
                     className="t3-unlock-tile t3-unlock-tile--primary"
                     onClick={handleTier3Buy}
                   >
-                    <span className="t3-unlock-tile-icon">🛒</span>
-                    <span className="t3-unlock-tile-label">购买专属报告</span>
+                    <span className="t3-unlock-tile-icon">💳</span>
+                    <span className="t3-unlock-tile-label">购买积分解锁</span>
+                    <span className="t3-unlock-tile-sub">前往中枢购买积分</span>
                   </button>
                   <button
                     className="t3-unlock-tile"
@@ -1665,7 +1646,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
                 {tier3CurrentQuestionIndex > 0 && (
                   <button className="t3-quiz-back" onClick={handleTier3Back}>‹ 上一题</button>
                 )}
-                {tier3TokenStatus ? (() => {
+                {(() => {
                   // 问卷全部完成 → 照片上传步骤
                   const allAnswered = ['makeupStyle', 'scenario', 'skillLevel', 'timeCost'].every((d) => tier3Answers[d]);
                   // 照片已上传（tier3PhotoKey 有值）但生成失败/未完成：展示"重新分析"按钮，避免卡在 Q4 无操作
@@ -1734,7 +1715,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
                       </div>
                     </div>
                   );
-                })() : null}
+                })()}
                 {tier3Error && <p className="report-q-error">{tier3Error}</p>}
               </div>
             ) : tier3Generating ? (
@@ -1833,6 +1814,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
     </RequireAuth>
   );
 }
+
 
 
 
