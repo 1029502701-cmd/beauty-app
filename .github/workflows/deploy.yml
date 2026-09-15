@@ -76,3 +76,47 @@ jobs:
           npx wrangler pages deploy ./dist --project-name=beauty-api-pages --branch=master --skip-caching
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+
+  cf-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: List Pages projects and custom domains
+        run: |
+          set -e
+          echo "=== Pages projects ==="
+          curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/235c8c471fbed899968bedeb565015cf/pages/projects?per_page=50" \
+            | node -e "
+            const d = require('fs').readFileSync(0, 'utf8');
+            const j = JSON.parse(d);
+            (j.result||[]).forEach(p => {
+              console.log('  name:', p.name, 'id:', p.id);
+              (p.custom_domains||[]).forEach(cd => {
+                console.log('    custom_domain:', cd.name, 'status:', cd.status, 'ssl_type:', cd.ssl_type||'auto');
+              });
+            });
+            "
+          echo "=== Custom domains (zone-level, meijian.top) ==="
+          # Find the zone id for meijian.top
+          ZONE_ID=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones?name=meijian.top&per_page=5" \
+            | node -e "
+            const d = require('fs').readFileSync(0, 'utf8');
+            const j = JSON.parse(d);
+            const z = (j.result||[])[0];
+            if (z) { process.stdout.write(z.id); } else { process.stdout.write('NOT_FOUND'); }
+            ")
+          echo "meijian.top zone_id: $ZONE_ID"
+          if [ "$ZONE_ID" != "NOT_FOUND" ]; then
+            curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/custom_hostnames" \
+              | node -e "
+              const d = require('fs').readFileSync(0, 'utf8');
+              const j = JSON.parse(d);
+              (j.result||[]).forEach(h => {
+                console.log('  host:', h.name, 'target:', h.custom_hostname_target||h.hostname||'?', 'status:', h.status);
+              });
+            "
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
