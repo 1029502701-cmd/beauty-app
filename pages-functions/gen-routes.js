@@ -1,46 +1,45 @@
-// Generate _routes.json for Cloudflare Pages Functions
+// Generate _routes.json for Cloudflare Pages Functions (wrangler >= 4.x spec).
+// Emits { version:1, include:[...], exclude:[] }.
+//   - rules must start with "/" and be <= 100 chars;
+//   - total include+exclude <= 100;
+//   - a wildcard "X/*" must not overlap any rule that is a sub-path of "X/".
+// Strategy: for each parametric route emit ONE splat on its parent dir, then drop
+// exact static rules that live under that splat (they would be flagged as overlap).
+// Source of truth: functions/_routes.json (legacy :param list, 66 routes).
 const fs = require("fs");
 const path = require("path");
 
-const functionsDir = path.join(__dirname, "functions/api");
+const refPath = path.join(__dirname, "functions", "_routes.json");
 const outputPath = path.join(__dirname, "dist", "_routes.json");
 
-const routes = [];
+const ref = JSON.parse(fs.readFileSync(refPath, "utf8"));
+const legacy = (ref.routes || []).map((r) => (r.startsWith("/") ? r : "/" + r));
 
-function scan(dir, mountPath) {
-  if (!fs.existsSync(dir)) return;
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name.startsWith("[") && entry.name.endsWith("]")) {
-        const route = mountPath + "/*";
-        routes.push(route);
-        continue;
-      }
-      const subMount = mountPath + "/" + entry.name;
-      scan(full, subMount);
-    } else if (entry.name.endsWith(".ts") && !entry.name.startsWith("_")) {
-      const name = entry.name.replace(/\.ts$/, "");
-      const paramMatch = name.match(/^\[(\w+)\]$/);
-      const route = paramMatch
-        ? mountPath + "/*"
-        : mountPath + "/" + name;
-      routes.push(route);
-    }
+const exact = [];
+const wild = [];
+for (const rule of legacy) {
+  if (/:/.test(rule)) {
+    const m = rule.match(/^(.*)\/:[^/]+(\/.*)?$/);
+    const parent = m ? m[1] : "/" + rule.split("/")[1];
+    const w = parent + "/*";
+    if (!wild.includes(w)) wild.push(w);
+  } else {
+    if (!exact.includes(rule)) exact.push(rule);
   }
 }
 
-scan(functionsDir, "/api");
-const unique = [...new Set(routes)].sort();
+const underSplat = (e) => wild.some((w) => e !== w && e.startsWith(w.slice(0, -1)));
+const include = [...new Set([...wild, ...exact.filter((e) => !underSplat(e))])]
+  .filter((x) => x.startsWith("/") && x.length <= 100)
+  .sort();
 
-const output = {
+const out = {
   version: 1,
-  description: "Auto-generated from functions/api/",
-  include: unique,
-  exclude: []
+  description: "Auto-generated from functions/_routes.json (include/exclude glob spec)",
+  include,
+  exclude: [],
 };
 
-fs.mkdirSync(path.join(__dirname, "dist"), { recursive: true });
-fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
-console.log("Generated " + unique.length + " routes to " + outputPath);
+fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+fs.writeFileSync(outputPath, JSON.stringify(out, null, 2));
+console.log("Generated " + include.length + " rules to " + outputPath);
