@@ -16,6 +16,33 @@ jobs:
         with:
           node-version: 22
 
+      - name: Fail fast on missing Cloudflare token
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "CLOUDFLARE_API_TOKEN is empty. Set the repo secret CF_API_TOKEN to a valid Cloudflare API token."
+            exit 1
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+
+      - name: Verify Cloudflare token
+        run: |
+          set -e
+          # GET /accounts is the endpoint wrangler hits on /accounts lookups; it
+          # returns code 9109 "Invalid access token" when the token was revoked.
+          res=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts" 2>&1) || true
+          echo "$res" | head -c 400; echo
+          if echo "$res" | grep -q '"success":true'; then
+            echo "Cloudflare API token OK"
+          else
+            echo "Cloudflare API token INVALID (code 9109 = token revoked/expired)."
+            echo "Regenerate: Cloudflare dashboard -> API Tokens -> create a token with Pages:Edit + Zone/Account:Read, then update repo secret CF_API_TOKEN."
+            exit 1
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+
       - name: Install dependencies
         run: npm install
 
@@ -39,7 +66,6 @@ jobs:
           cp app/dist/favicon.svg pages-functions/dist/ 2>/dev/null || true
           cp app/dist/icons.svg pages-functions/dist/ 2>/dev/null || true
           cp app/dist/_curated-products.json pages-functions/dist/ 2>/dev/null || true
-          cp app/dist/mock-pay.html pages-functions/dist/ 2>/dev/null || true
           cp app/dist/share-card-template.jpg pages-functions/dist/ 2>/dev/null || true
 
       - name: Deploy
