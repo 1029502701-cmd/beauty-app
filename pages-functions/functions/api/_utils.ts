@@ -113,56 +113,51 @@ export interface JwtPayload { phone?: string;
   age_range?: string | null;
 }
 
-export async function verifyJwt(token: string, secret: string): Promise<JwtPayload | null> {
+// 统一 JWT 取 token：Bearer Authorization 头优先，否则从中枢共享 cookie "auth_token" 里取（用户经 auth.meijian.top 登录后由中枢下发的
+// HttpOnly cookie，本端与中枢同属 *.meijian.top 共享域 cookie，浏览器自动携带；前端 JS 不读/不存 token）。
+export function extractJwt(req: Request): string {
+  const authHeader = req.headers.get("Authorization") || "";
+  if (authHeader.startsWith("Bearer ")) return authHeader.slice(7).trim();
+  if (authHeader.trim() && !authHeader.trim().toLowerCase().startsWith("bearer ")) return authHeader.trim();
+  const cookie = req.headers.get("Cookie") || "";
+  const m = /(?:^|;\s*)auth_token=([^;]+)/.exec(cookie);
+  return m ? m[1] : "";
+}
+
+// 中枢登录态探测：拿 cookie/Authorization 里的 JWT 直接调中枢用户态接口（/api/auth/profile GET，无副作用）。
+// 有效返回 true；无 token 或 token 无效返回 false。前端据此判断"cookie 里有没有有效 token"，没有/过期则跳中枢登录。
+export async function probeAuthCenterSession(env: Ctx["env"], req: Request): Promise<boolean> {
+  const jwt = extractJwt(req);
+  if (!jwt || jwt.split(".").length !== 3) return false;
   try {
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-      console.error('[verifyJwt] INVALID_FORMAT: token has ' + parts.length + ' parts instead of 3');
-      return null;
-    }
-    const [header, body, signature] = parts;
-    const sigBytes = base64urlDecode(signature);
-    const valid = await verifyHmacSha256(secret, header + '.' + body, sigBytes);
-    if (!valid) {
-      console.error('[verifyJwt] SIGNATURE_MISMATCH: HMAC verification failed (secret may be wrong)');
-      return null;
-    }
-    try {
-      const payload = JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/'))) as JwtPayload;
-      const now = Math.floor(Date.now() / 1000);
-      if (payload.exp && payload.exp < now) {
-        console.error('[verifyJwt] EXPIRED: token expired at ' + payload.exp + ', now=' + now);
-        return null;
-      }
-      console.log('[verifyJwt] OK user_id=' + payload.user_id + ' gender=' + payload.gender);
-      return payload;
-    } catch (e) {
-      console.error('[verifyJwt] PAYLOAD_PARSE_ERROR: ' + e);
-      return null;
-    }
+    const res = await fetch(authCenterBaseForProbe(env) + "/api/auth/profile", {
+      method: "GET",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + jwt },
+      signal: AbortSignal.timeout(8000),
+    });
+    return res.status === 200;
   } catch (e) {
-    console.error('[verifyJwt] EXCEPTION: ' + e);
-    return null;
+    console.warn("[auth/probe] error:", e);
+    return false;
   }
 }
 
+function authCenterBaseForProbe(env: Ctx["env"]): string {
+  return ((env as unknown as Record<string, unknown>).AUTH_CENTER_URL as string) || "https://auth.meijian.top";
+}
 
-// ── 积分数据直连中枢用户态接口 ──────────────
-// 积分读/扣/赠现在直连 https://auth.meijian.top/api/points/* 用户态接口（带用户自己的 JWT），
-// 中枢从 JWT 里解出 user_id 操作 user_points，不再需要手机号中转。
+
+// ── 统一鉴权：从请求取中枢 JWT（Authorization 头优先，其次共享 cookie "auth_token"）──
+// 校验 JWT 后幂等确保本端 users 表存在该行（FK 兜底），不缓存中枢数据。
 export async function requireAuth(
   req: Request,
   env: Ctx["env"]
 ): Promise<AuthUser | null> {
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader || !authHeader.startsWith("Bearer ") || !env.AUTH_JWT_SECRET) return null;
-  const jwtToken = authHeader.slice("Bearer ".length);
+  if (!env.AUTH_JWT_SECRET) return null;
+  const jwtToken = extractJwt(req);
+  if (!jwtToken) return null;
   const payload = await verifyJwt(jwtToken, env.AUTH_JWT_SECRET);
   if (!payload) return null;
-  // 身份唯一来源是中枢（chat-ai-auth）签发的 JWT：本端不回退本地 KV session。
-  // 但本端业务表（orders/tokens/reports_tier* 等）带 FOREIGN KEY(user_id) REFERENCES users(id)，
-  // 中枢注册的用户在本端 users 表未必有行 → 订单/报告写入会触发外键约束失败(500)。
-  // 因此 JWT 校验通过后，幂等地确保本端 users 表存在该行（占位 phone，不覆盖中枢权威数据）。
   try {
     const now = Math.floor(Date.now() / 1000);
     await env.DB.prepare(

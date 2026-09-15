@@ -1,11 +1,11 @@
 // GET /api/points/balance
-// 直连中枢用户态积分接口（当前登录用户自己的 JWT），中枢从 JWT 解出 user_id 查 user_points，无手机号中转。
+// 直连中枢用户态积分接口（当前登录用户自己的 JWT，Authorization 头优先，其次共享 cookie "auth_token"）。
+import { extractJwt } from "../../_utils";
 const AUTH_CENTER_BASE = 'https://auth.meijian.top';
 
 export const GET = async (context) => {
   const { request } = context;
-  const authHeader = request.headers.get('Authorization') || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : authHeader.trim();
+  const token = extractJwt(request);
   if (!token) {
     return new Response(JSON.stringify({ error: '未登录' }), {
       status: 401, headers: { 'Content-Type': 'application/json' },
