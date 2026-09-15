@@ -10,11 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          node-version: 24
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Fail fast on missing Cloudflare token
         run: |
@@ -28,8 +30,8 @@ jobs:
       - name: Verify Cloudflare token
         run: |
           set -e
-          # GET /accounts is the endpoint wrangler hits on /accounts lookups; it
-          # returns code 9109 "Invalid access token" when the token was revoked.
+          # GET /accounts is the endpoint wrangler hits; it returns code 9109
+          # ("Invalid access token") when the token was revoked/expired.
           res=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/accounts" 2>&1) || true
           echo "$res" | head -c 400; echo
@@ -37,7 +39,7 @@ jobs:
             echo "Cloudflare API token OK"
           else
             echo "Cloudflare API token INVALID (code 9109 = token revoked/expired)."
-            echo "Regenerate: Cloudflare dashboard -> API Tokens -> create a token with Pages:Edit + Zone/Account:Read, then update repo secret CF_API_TOKEN."
+            echo "Regenerate a token with Pages:Edit + Zone:Read in Cloudflare, then update repo secret CF_API_TOKEN."
             exit 1
           fi
         env:
