@@ -1,0 +1,112 @@
+Checking account...
+
+ ⛅️ wrangler 4.131.1 (update available 4.131.2)
+───────────────────────────────────────────────
+Getting User settings...
+👋 You are logged in with an OAuth Token, associated with the email 1029502701@qq.com.
+🔐 Credentials are stored in: C:\Users\yao\.wrangler\config\default.toml
+┌─────────────────────────────┬──────────────────────────────────┐
+│ Account Name                │ Account ID                       │
+├─────────────────────────────┼──────────────────────────────────┤
+│ 1029502701@qq.com's Account │ 235c8c471fbed899968bedeb565015cf │
+└─────────────────────────────┴──────────────────────────────────┘
+🔓 Token Permissions:
+Scope (Access)
+- user (read)
+- offline_access 
+- account (read)
+- workers (write)
+- workers_kv (write)
+- workers_routes (write)
+- workers_scripts (write)
+- workers_tail (read)
+- d1 (write)
+- pages (write)
+- zone (read)
+- ssl_certs (write)
+- ai (write)
+- ai-search (write)
+- ai-search (run)
+- websearch.run 
+- agent-memory (write)
+- queues (write)
+- pipelines (write)
+- secrets_store (write)
+- artifacts (write)
+- flagship (write)
+- containers (write)
+- cloudchamber (write)
+- connectivity (admin)
+- email_routing (write)
+- email_sending (write)
+- browser (write)
+- challenge-widgets.write 
+Building frontend...
+
+up to date, audited 246 packages in 3s
+
+34 packages are looking for funding
+  run `npm fund` for details
+
+3 vulnerabilities (2 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+> beauty-app-frontend@0.1.0 build
+> vite build
+
+vite v8.2.1 building client environment for production...
+[2K
+transforming...✓ 82 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                        0.45 kB │ gzip:  0.29 kB
+dist/assets/index-DAmCEOpG.css        94.92 kB │ gzip: 14.31 kB
+dist/assets/esm-BClZxMHP.js            0.37 kB │ gzip:  0.27 kB │ map:     0.48 kB
+dist/assets/web-DU8xqdEe.js            0.40 kB │ gzip:  0.28 kB │ map:     1.18 kB
+dist/assets/esm-BUiARnfF.js            0.65 kB │ gzip:  0.43 kB │ map:     4.41 kB
+dist/assets/web-D45PNHZG.js            1.23 kB │ gzip:  0.58 kB │ map:     3.86 kB
+dist/assets/esm-CiwCVuEk.js            4.31 kB │ gzip:  1.65 kB │ map:    16.09 kB
+dist/assets/web-DjEmTmsp.js            8.41 kB │ gzip:  2.83 kB │ map:    33.73 kB
+dist/assets/browser-DCPtQz4x.js       23.51 kB │ gzip:  8.89 kB │ map:   114.55 kB
+dist/assets/html2canvas-CUf3-bBF.js  199.54 kB │ gzip: 46.81 kB │ map:   598.03 kB
+dist/assets/index-CNtzyrNS.js        336.84 kB │ gzip: 98.79 kB │ map: 1,259.92 kB
+
+✓ built in 607ms
+Building functions...
+ ⛅️ wrangler 4.126.0 (update available 4.131.2)
+───────────────────────────────────────────────
+✨ Compiled Worker successfully
+Assembling deploy dir (static + _.js worker + _routes.json)...
+25 File(s) copied
+The system cannot find the file specified.
+        1 file(s) copied.
+Deploying to master (single combined deploy)...
+
+ ⛅️ wrangler 4.126.0 (update available 4.131.2)
+───────────────────────────────────────────────
+▲ [WARNING] Warning: Your working directory is a git repo and has uncommitted changes
+
+  To silence this warning, pass in --commit-dirty=true
+
+
+✨ Compiled Worker successfully
+Uploading... (0/26)
+Uploading... (8/26)
+Uploading... (17/26)
+Uploading... (26/26)
+✨ Success! Uploaded 26 files (3.35 sec)
+
+✨ Uploading Functions bundle
+🌎 Deploying...
+✨ Deployment complete! Take a peek over at https://b125220d.beauty-api-pages.pages.dev
+Verifying API...
+{"key":"feature_request_message","value":"æä»ä¹éè¦çåè½æ¬¢è¿æç¨¿ï½","updated_at":1787562088}
+Done!
+Press any key to continue . . . 

@@ -1,5 +1,5 @@
 import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
-import { requireAuth, generateId, beijingDate, parseDeepseekJson, getChatProviderConfig, callChatProvider } from "../../_utils";
+import { requireAuth, generateId, beijingDate, parseDeepseekJson, getChatProviderConfig, callChatProvider, writeProfileFacts, extractJwt } from "../../_utils";
 import { resizeBase64IfNeeded } from "../../_image_utils";
 import type { Ctx } from "../../_utils";
 
@@ -249,6 +249,16 @@ Output strict JSON only, with these exact keys:
   }
 
   await saveReport(report);
+  // 结果确定后再写画像标签（脸型/肤质/眉形/眼型/妆容风格），非阻塞，失败不影响本次返回。
+  const jwtHeader = extractJwt(request);
+  const jwt = jwtHeader;
+  void writeProfileFacts(jwt, [
+    { key: "face_shape", value: String(report["faceShape"] || "") },
+    { key: "skin_type", value: String(report["skinType"] || "") },
+    { key: "brow_shape", value: String(report["eyebrowShape"] || "") },
+    { key: "eye_shape", value: String(report["eyeShape"] || "") },
+    { key: "makeup_style", value: String(report["personaTags"] || "") },
+  ].filter(f => f.value !== ""));
   return new Response(JSON.stringify({ report, reportId }), { headers: { "Content-Type": "application/json" } });
 };
 

@@ -1,150 +1,47 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext.jsx';
-import { authApi } from '../api.js';
+import { authApi, inviteApi } from '../api.js';
 
 const PHONE_RE = /^1[3-9]\d{9}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 function isValidAccount(s) { return PHONE_RE.test(s) || EMAIL_RE.test(s); }
-function isValidPhone(s) { return PHONE_RE.test(s); }
 
-const GENDERS = [
-  { value: 'female', label: '女生' },
-  { value: 'male', label: '男生' },
-];
-const AGE_RANGES = [
-  { value: '18-24', label: '18-24岁' },
-  { value: '25-30', label: '25-30岁' },
-  { value: '31-35', label: '31-35岁' },
-  { value: '36-40', label: '36-40岁' },
-  { value: '40+', label: '40岁以上' },
-];
-
+// 登录/注册：注册走中枢 /api/auth/register，登录走 /api/auth/login（中枢两个独立接口，不做自动判断）。
+// 依据"首次使用是否带过邀请码"区分新用户/老用户：新用户默认走注册表单，老用户默认走登录表单。
 export default function Login({ onLogin }) {
   const { login } = useContext(AuthContext);
-  const [tab, setTab] = useState('password');
-  const [smsEnabled, setSmsEnabled] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [mode, setMode] = useState(() => (sessionStorage.getItem('invite_code') ? 'register' : 'login'));
   const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
-  const [phone, setPhone] = useState('');
-  const [code, setCode] = useState('');
-  const [codeSending, setCodeSending] = useState(false);
-  const [codeCountdown, setCodeCountdown] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const [showProfileModal, setShowProfileModal] = useState(false);
-  const [pendingSessionId, setPendingSessionId] = useState(null);
-  const [selectedGender, setSelectedGender] = useState('');
-  const [selectedAgeRange, setSelectedAgeRange] = useState('');
-
-  useEffect(() => {
-    fetch('/api/config/sms_login_enabled')
-      .then(r => r.json())
-      .then(data => { if (data.value === 'true') setSmsEnabled(true); })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (codeCountdown <= 0) return;
-    const timer = setTimeout(() => setCodeCountdown(c => c - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [codeCountdown]);
-
-  const finishLogin = async (sessionId) => {
-    await login(sessionId);
-    onLogin?.(sessionStorage.getItem('auth_redirect_from') || null);
-    sessionStorage.removeItem('auth_redirect_from');
-  };
-
-  const checkProfile = async (sessionId) => {
-    try {
-      const res = await fetch('/api/auth/profile', {
-        headers: { 'Authorization': 'Bearer ' + sessionId },
-      });
-      const data = await res.json();
-      if (!res.ok) return true;
-      if (data.completed) return true;
-      setPendingSessionId(sessionId);
-      setShowProfileModal(true);
-      return false;
-    } catch {
-      return true;
-    }
-  };
-
-  // 登录/注册：走中枢（本端 /api/auth/login-or-register 代理到 auth-center），不再本地建号
-  const handleAutoLogin = async () => {
+  const submit = async () => {
     setError('');
     if (!isValidAccount(account)) { setError('请输入正确的手机号或邮箱'); return; }
     if (!password || password.length < 6) { setError('请设置密码（至少6位，含字母和数字）'); return; }
     setLoading(true);
     try {
-      // 从 sessionStorage 读取邀请码（来自 App.jsx 回调 URL 提取）
       const inviteCode = sessionStorage.getItem('invite_code') || '';
-      const res = await fetch('/api/auth/login-or-register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          account,
-          password,
-          // 首次使用走注册通道（可带邀请码）；已存在账号则直接登录
-          isRegister: true,
-          ...(inviteCode ? { inviteCode } : {}),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '登录失败');
-      // 拿到中枢 JWT → 作为该用户全局身份
-      await login(data.token);
-      finishLogin(data.token);
-    } catch (e) { setError(e.message || '登录失败，请重试'); }
-    finally { setLoading(false); }
-  };
-
-  const handleSendCode = async () => {
-    setError('');
-    if (!isValidPhone(phone)) { setError('请输入正确的手机号'); return; }
-    setCodeSending(true);
-    try { await authApi.sendSmsCode(phone); setCodeCountdown(60); }
-    catch (e) { setError(e.message || '发送失败，请重试'); }
-    finally { setCodeSending(false); }
-  };
-
-  const handleSmsSubmit = async () => {
-    setError('');
-    if (!isValidPhone(phone)) { setError('请输入正确的手机号'); return; }
-    if (!code || code.length !== 6) { setError('请输入6位验证码'); return; }
-    setLoading(true);
-    try {
-      // 从 sessionStorage 读取邀请码
-      const inviteCode = sessionStorage.getItem('invite_code') || '';
-      const res = await fetch('/api/auth/phone/login', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, code, inviteCode }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '登录失败');
-      if (data.hasPassword === false) {
-        await login(data.sessionId);
-        window.location.href = "/set-password" + window.location.search;
-        return;
+      // 注册与兑换解耦：注册只提交账号密码；邀请码兑换是注册成功后的独立步骤（中枢 /api/invite/redeem）。
+      const res = mode === 'register'
+        ? await authApi.register(account, password)
+        : await authApi.login(account, password);
+      const token = res?.token;
+      if (!token) throw new Error(res?.error || '登录失败');
+      if (inviteCode) {
+        // 仅注册路径尝试兑换一次；失败（如已兑换过/自邀）不阻断登录，静默忽略。
+        try { await inviteApi.redeem(inviteCode); } catch (e) { console.warn('invite redeem skipped:', e?.message); }
       }
-      const isLoggedIn = await checkProfile(data.sessionId);
-      if (isLoggedIn) await finishLogin(data.sessionId);
-    } catch (e) { setError(e.message || '登录失败，请重试'); }
-    finally { setLoading(false); }
-  };
-
-  const handleProfileSubmit = async () => {
-    if (!selectedGender || !selectedAgeRange) return;
-    setLoading(true);
-    try {
-      await authApi.setProfile(selectedGender, selectedAgeRange);
-      setShowProfileModal(false);
-      await finishLogin(pendingSessionId);
-    } catch (e) { setError(e.message || '保存失败，请重试'); }
-    finally { setLoading(false); }
+      sessionStorage.removeItem('invite_code');
+      await login(token);
+      onLogin?.(sessionStorage.getItem('auth_redirect_from') || null);
+      sessionStorage.removeItem('auth_redirect_from');
+    } catch (e) {
+      setError(e.message || '操作失败，请重试');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -154,81 +51,25 @@ export default function Login({ onLogin }) {
         <h1>美妆App</h1>
         <p className="login-subtitle">发现你的专属美丽</p>
       </div>
-
-      {smsEnabled && (
-        <div className="login-tabs">
-          <button className={"login-tab" + (tab === "password" ? " login-tab--active" : "")} onClick={() => { setTab("password"); setError(""); }}>一键登录</button>
-          <button className={"login-tab" + (tab === "sms" ? " login-tab--active" : "")} onClick={() => { setTab("sms"); setError(""); }}>验证码登录</button>
-        </div>
-      )}
-
       <div className="login-form">
-        {tab === "password" ? (
-          <>
-            <div className="input-group">
-              <input type="text" className="input-field" placeholder="手机号 / 邮箱" value={account} onChange={(e) => { setAccount(e.target.value); setError(""); }} onKeyDown={(e) => { if (e.key === "Enter") handleAutoLogin(); }} />
-            </div>
-            <div className="input-group">
-              <input type="password" className="input-field" placeholder="密码（至少6位，含字母和数字）" value={password} onChange={(e) => { setPassword(e.target.value); setError(""); }} onKeyDown={(e) => { if (e.key === "Enter") handleAutoLogin(); }} />
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="input-group input-group--code">
-              <input type="text" className="input-field" placeholder="请输入手机号" value={phone} onChange={(e) => { setPhone(e.target.value); setError(""); }} maxLength={11} />
-              <button className="code-btn" disabled={codeSending || codeCountdown > 0} onClick={handleSendCode}>
-                {codeCountdown > 0 ? codeCountdown + "s" : "获取验证码"}
-              </button>
-            </div>
-            <div className="input-group">
-              <input type="text" className="input-field" placeholder="请输入6位验证码" value={code} onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setError(""); }} maxLength={6} onKeyDown={(e) => { if (e.key === "Enter") handleSmsSubmit(); }} />
-            </div>
-          </>
-        )}
-
-        {error && <p className="error-msg">{error}</p>}
-
-        {tab === "password" ? (
-          <button className="login-btn" disabled={loading || !isValidAccount(account) || password.length < 6} onClick={handleAutoLogin}>
-            {loading ? "登录中..." : "登录 / 注册"}
-          </button>
-        ) : (
-          <button className="login-btn" disabled={loading || !isValidPhone(phone) || code.length !== 6} onClick={handleSmsSubmit}>
-            {loading ? "登录中..." : "登录"}
-          </button>
-        )}
-      </div>
-
-      {showProfileModal && (
-        <div className="profile-modal-overlay" onClick={() => setShowProfileModal(false)}>
-          <div className="profile-modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="profile-modal-title">完善个人信息</h2>
-            <p className="profile-modal-hint">选择性别和年龄段，为你推荐更精准的美妆方案</p>
-            <div className="profile-modal-section">
-              <label className="profile-modal-label">性别</label>
-              <div className="profile-modal-options">
-                {GENDERS.map(g => (
-                  <button key={g.value} className={"profile-modal-option" + (selectedGender === g.value ? " profile-modal-option--active" : "")}
-                    onClick={() => setSelectedGender(g.value)}>{g.label}</button>
-                ))}
-              </div>
-            </div>
-            <div className="profile-modal-section">
-              <label className="profile-modal-label">年龄段</label>
-              <div className="profile-modal-options">
-                {AGE_RANGES.map(a => (
-                  <button key={a.value} className={"profile-modal-option" + (selectedAgeRange === a.value ? " profile-modal-option--active" : "")}
-                    onClick={() => setSelectedAgeRange(a.value)}>{a.label}</button>
-                ))}
-              </div>
-            </div>
-            <button className="profile-modal-btn" disabled={!selectedGender || !selectedAgeRange || loading}
-              onClick={handleProfileSubmit}>
-              {loading ? "保存中..." : "完成"}
-            </button>
-          </div>
+        <div className="input-group">
+          <input type="text" className="input-field" placeholder="手机号 / 邮箱" value={account}
+            onChange={(e) => { setAccount(e.target.value); setError(''); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') submit(); }} />
         </div>
-      )}
+        <div className="input-group">
+          <input type="password" className="input-field" placeholder="密码（至少6位，含字母和数字）" value={password}
+            onChange={(e) => { setPassword(e.target.value); setError(''); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') submit(); }} />
+        </div>
+        {error && <p className="error-msg">{error}</p>}
+        <button className="login-btn" disabled={loading || !isValidAccount(account) || password.length < 6} onClick={submit}>
+          {loading ? '处理中...' : (mode === 'register' ? '注册并登录' : '登录')}
+        </button>
+        <button type="button" className="login-divider" onClick={() => { setMode(mode === 'register' ? 'login' : 'register'); setError(''); }}>
+          <span>{mode === 'register' ? '已有账号？去登录' : '还没有账号？去注册'}</span>
+        </button>
+      </div>
     </div>
   );
 }

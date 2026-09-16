@@ -1,0 +1,2 @@
+npm error could not determine executable to run
+npm error A complete log of this run can be found in: C:\Users\yao\AppData\Local\npm-cache\_logs\2026-09-15T08_35_12_029Z-debug-0.log

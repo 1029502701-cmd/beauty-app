@@ -1,0 +1,29 @@
+AggregateError [ETIMEDOUT]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+    at TCPConnectWrap.callbackTrampoline (node:internal/async_hooks:130:17) {
+  code: 'ETIMEDOUT',
+  [errors]: [
+    Error: connect ETIMEDOUT 2a03:2880:f10e:83:face:b00c:0:25de:443
+        at createConnectionError (node:net:1678:14)
+        at Timeout.internalConnectMultipleTimeout (node:net:1737:38)
+        at listOnTimeout (node:internal/timers:590:11)
+        at process.processTimers (node:internal/timers:523:7) {
+      errno: -4039,
+      code: 'ETIMEDOUT',
+      syscall: 'connect',
+      address: '2a03:2880:f10e:83:face:b00c:0:25de',
+      port: 443
+    },
+    Error: connect ETIMEDOUT 31.13.94.49:443
+        at createConnectionError (node:net:1678:14)
+        at afterConnectMultiple (node:net:1708:16)
+        at TCPConnectWrap.callbackTrampoline (node:internal/async_hooks:130:17) {
+      errno: -4039,
+      code: 'ETIMEDOUT',
+      syscall: 'connect',
+      address: '31.13.94.49',
+      port: 443
+    }
+  ]
+}

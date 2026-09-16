@@ -26,41 +26,43 @@ export default function AdminLogin() {
 
   return (
     <div className="admin-login-page">
-      <div className="admin-modal" style={{ width: '320px' }}>
-        <h2 style={{ margin: '0 0 8px', fontSize: '20px', color: '#111827', textAlign: 'center' }}>
-          管理后台
-        </h2>
-        <p style={{ margin: '0 0 24px', fontSize: '13px', color: '#6b7280', textAlign: 'center' }}>
-          请登录以继续
-        </p>
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '12px' }}>
+      <div className="admin-login-card">
+        <div className="admin-login-header">
+          <span className="admin-login-icon">💄</span>
+          <h1>管理后台</h1>
+          <p className="admin-login-sub">美妆报告系统 · 请登录以继续</p>
+        </div>
+        <form className="admin-login-form" onSubmit={handleSubmit}>
+          <div className="admin-input-group">
+            <label htmlFor="admin-username">用户名</label>
             <input
-              className="admin-config-input"
-              style={{ height: '40px', width: '100%' }}
+              id="admin-username"
+              className="admin-input"
               type="text"
-              placeholder="用户名"
+              placeholder="请输入用户名"
+              autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
             />
           </div>
-          <div style={{ marginBottom: '12px' }}>
+          <div className="admin-input-group">
+            <label htmlFor="admin-password">密码</label>
             <input
-              className="admin-config-input"
-              style={{ height: '40px', width: '100%' }}
+              id="admin-password"
+              className="admin-input"
               type="password"
-              placeholder="密码"
+              placeholder="请输入密码"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
             />
           </div>
-          {error && <p style={{ color: '#dc2626', fontSize: '13px', margin: '0 0 12px' }}>{error}</p>}
+          {error && <p className="admin-error">⚠ {error}</p>}
           <button
             type="submit"
-            className="admin-btn-save"
-            style={{ width: '100%', height: '40px', fontSize: '15px', fontWeight: '600' }}
+            className="admin-login-btn"
             disabled={loading}
           >
             {loading ? '登录中...' : '登录'}

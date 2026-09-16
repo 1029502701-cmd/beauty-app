@@ -5,7 +5,7 @@ import { composeShareCard, shareImage } from '../utils/makeShareCard.js';
 
 const PRODUCTS = [
   { id: 'ai-beauty', label: 'AI 美妆', icon: '💄' },
-  { id: 'chat-ai', label: '聊天AI', icon: '💬', path: 'https://gxvipvpn2.ccwu.cc' },
+  { id: 'chat-ai', label: '聊天AI', icon: '💬', path: 'https://chat.meijian.top' },
 ];
 
 const COMING_SOON = { id: 'coming-soon', label: '更多功能开发中...', icon: '+' };
@@ -33,7 +33,7 @@ function parseContactList(value) {
 }
 
 export default function Home({ onLogout }) {
-  const { token } = useContext(AuthContext);
+  const { token } = useContext(AuthContext); // token now indicates valid cookie session
   const [featureMsg, setFeatureMsg] = useState('有什么需要的功能欢迎投稿～');
   const [contactList, setContactList] = useState([]);
   const [showModal, setShowModal] = useState(false);
@@ -47,8 +47,8 @@ export default function Home({ onLogout }) {
 
   useEffect(() => {
     Promise.all([
-      fetch(BASE + '/config/feature_request_message').then(r => r.ok ? r.json().then(d => d.value ?? '') : Promise.resolve('')),
-      fetch(BASE + '/config/feature_request_contact').then(r => r.ok ? r.json().then(d => d.value ?? '') : Promise.resolve('')),
+      fetch(BASE + '/config/feature_request_message', { credentials: 'include' }).then(r => r.ok ? r.json().then(d => d.value ?? '') : Promise.resolve('')),
+      fetch(BASE + '/config/feature_request_contact', { credentials: 'include' }).then(r => r.ok ? r.json().then(d => d.value ?? '') : Promise.resolve('')),
     ]).then(([msg, contactRaw]) => {
       setFeatureMsg(msg || '有什么需要的功能欢迎投稿～');
       setContactList(parseContactList(contactRaw));
@@ -241,3 +241,4 @@ export default function Home({ onLogout }) {
     </div>
   );
 }
+

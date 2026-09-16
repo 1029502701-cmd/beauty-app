@@ -44,6 +44,8 @@
 .capture-error-text{font-size:14px;color:var(--text);text-align:center;margin:0}
 .capture-retry-btn{height:44px;padding:0 28px;font-size:14px;font-weight:500;color:#fff;background:var(--accent);border:none;border-radius:10px;cursor:pointer;transition:opacity .2s}
 .capture-retry-btn:hover{opacity:.85}
+.capture-reupload-btn{background:transparent;color:var(--accent);border:1px solid var(--accent);}
+.capture-reupload-btn:hover{opacity:.85;background:var(--accent-bg)}
 .capture-done{display:flex;flex-direction:column;align-items:center;gap:12px;padding-top:48px;width:100%}
 .capture-checkmark{width:64px;height:64px;border-radius:50%;background:var(--accent-bg);border:2px solid var(--accent-border);display:flex;align-items:center;justify-content:center;font-size:28px;color:var(--accent);animation:capture-pop .4s cubic-bezier(.34,1.56,.64,1)}
 @keyframes capture-pop{0%{transform:scale(0)}100%{transform:scale(1)}}
@@ -1684,6 +1686,11 @@
   line-height: 1;
 }
 
+/* 初识报告 - 重新上传 */
+.report-reupload-section{margin-top:20px;display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px 0}
+.report-reupload-btn{height:44px;padding:0 24px;font-size:14px;font-weight:500;color:var(--accent,#e8579a);background:transparent;border:1px solid var(--accent,#e8579a);border-radius:22px;cursor:pointer;transition:all .2s}
+.report-reupload-btn:hover{background:rgba(232,87,154,.08);opacity:.9}
+.report-reupload-hint{font-size:13px;color:var(--text,#999);text-align:center;margin:0}
 /* ===== Tier2 Photo Upload (进阶报告独立生成) ===== */
 .tier2-photo-area {
   width: 100%;

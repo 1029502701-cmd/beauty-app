@@ -1,19 +1,26 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { adminApi } from '../api.js';
 import AdminInfluencers from './AdminInfluencers.jsx';
 import AdminConfig from './AdminConfig.jsx';
 import AdminQuestionnaire from './AdminQuestionnaire.jsx';
+import AdminTier3Codes from './AdminTier3Codes.jsx';
 
 const MENU_ITEMS = [
   { key: 'influencers', label: '达人审核', icon: '👤' },
   { key: 'config', label: '文案配置', icon: '📝' },
   { key: 'questionnaire', label: '问卷选项', icon: '📋' },
+  { key: 'tier3codes', label: '兑换码管理', icon: '🔑' },
   { key: 'weights', label: '权重管理', icon: '⚖️', placeholder: true },
   { key: 'products', label: '商品管理', icon: '🛒', placeholder: true },
 ];
 
 export default function AdminDashboard() {
   const [active, setActive] = useState('influencers');
+  const [pendingCount, setPendingCount] = useState(0);
+
+  useEffect(() => {
+    adminApi.getInfluencers('pending').then(data => setPendingCount((data.list || []).length)).catch(() => {});
+  }, [active]);
 
   const handleLogout = () => {
     adminApi.logout();
@@ -25,6 +32,7 @@ export default function AdminDashboard() {
     if (active === 'influencers') return <AdminInfluencers />;
     if (active === 'config') return <AdminConfig />;
     if (active === 'questionnaire') return <AdminQuestionnaire />;
+    if (active === 'tier3codes') return <AdminTier3Codes />;
     if (active === 'weights' || active === 'products') {
       return (
         <div className="admin-placeholder">
@@ -54,6 +62,11 @@ export default function AdminDashboard() {
             >
               <span>{item.icon} {item.label}</span>
               {item.placeholder && <span className="admin-nav-badge">开发中</span>}
+              {item.key === 'influencers' && pendingCount > 0 && !item.placeholder && (
+                <span className="admin-nav-badge" style={{ background: '#fdf2f8', color: '#db2777', border: '1px solid #fbcfe8' }}>
+                  {pendingCount} 待审
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -66,6 +79,11 @@ export default function AdminDashboard() {
           <h1 className="admin-page-title">
             {MENU_ITEMS.find(m => m.key === active)?.icon} {MENU_ITEMS.find(m => m.key === active)?.label}
           </h1>
+          <span className="admin-greeting">
+            {active === 'influencers' && pendingCount > 0
+              ? `${pendingCount} 位达人申请待处理`
+              : '管理你的美妆报告系统'}
+          </span>
         </div>
         <div className="admin-content">{renderContent()}</div>
       </main>

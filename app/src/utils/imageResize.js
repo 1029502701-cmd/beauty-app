@@ -95,6 +95,12 @@ export function resizeImage(fileOrBlob, maxSide = MAX_SIDE, mimeType = 'image/jp
  * 先尝试快速读取 JPEG 元数据，再用 Canvas 兜底
  */
 export async function checkAndResize(file, maxSide = MAX_SIDE) {
+  // HEIC/HEIF 格式在 Safari 中无法直接解码，提前拦截并提示
+  const mime = file.type ? file.type.toLowerCase() : '';
+  const name = (file.name || '').toLowerCase();
+  if (mime.startsWith('image/heic') || mime.startsWith('image/heif') || name.endsWith('.heic') || name.endsWith('.heif')) {
+    throw new Error('该图片格式不受支持，请重新选择 JPG 或 PNG 格式的照片');
+  }
   const dataUrl = await new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
@@ -114,3 +120,58 @@ export async function checkAndResize(file, maxSide = MAX_SIDE) {
   const result = await resizeImage(file, maxSide);
   return result !== null ? result : dataUrl;
 }
+export async function isProbablyHeic(file) {
+  const mime = (file.type || '').toLowerCase();
+  const name = (file.name || '').toLowerCase();
+  if (mime.startsWith("image/heic") || mime.startsWith("image/heif") || name.endsWith(".heic") || name.endsWith(".heif")) {
+    return true;
+  }
+  if (mime === 'image/jpeg' || mime === 'image/png') return false;
+  if (name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png')) return false;
+  // Unknown format: sniff magic bytes (works even when Safari reports empty MIME)
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const dataUrl = reader.result;
+        if (typeof dataUrl !== 'string') return resolve(false);
+        const b64 = dataUrl.split(',')[1] || '';
+        const binary = atob(b64.slice(0, 32));
+        const ftyp = binary.substring(4, 8);
+        const brand = binary.substring(8, 12);
+        if (ftyp === 'ftyp' && (brand.includes('heic') || brand.includes('heif') || brand.includes('mif1') || brand.includes('mif2'))) {
+          resolve(true);
+        } else {
+          resolve(false);
+        }
+      } catch (e) { resolve(false); }
+    };
+    reader.onerror = () => resolve(false);
+    reader.readAsDataURL(file.slice(0, 64));
+  });
+}
+
+export function fileToJpegBlob(file, quality = 0.88) {
+  return new Promise((resolve, reject) => {
+    const blobUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(blobUrl);
+      const scale = Math.max(1, 1024 / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.round(img.naturalWidth * scale);
+      const h = Math.round(img.naturalHeight * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob((b) => {
+        if (b) resolve(b);
+        else reject(new Error('图片转换失败'));
+      }, 'image/jpeg', quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(blobUrl); reject(new Error('图片加载失败')); };
+    img.src = blobUrl;
+  });
+}
+

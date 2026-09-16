@@ -28,7 +28,7 @@ call npx wrangler pages deploy .\deploy-final --project-name=beauty-api-pages --
 cd ..
 
 echo Verifying API...
-powershell -Command "try { Invoke-WebRequest -Uri https://ccfu.ccwu.cc/api/config/feature_request_message -UseBasicParsing -TimeoutSec 30 | Select-Object -ExpandProperty Content } catch { Write-Host (\"API CHECK FAILED: \" + $_.Exception.Message) }"
+powershell -Command "try { Invoke-WebRequest -Uri https://beauty.meijian.top/api/config/feature_request_message -UseBasicParsing -TimeoutSec 30 | Select-Object -ExpandProperty Content } catch { Write-Host (\"API CHECK FAILED: \" + $_.Exception.Message) }"
 
 echo Done!
 pause

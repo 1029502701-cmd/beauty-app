@@ -1,7 +1,11 @@
+-- [已废弃 / SUPERSEDED] 本表是"自建本地缓存表"，历史上真实出过事故（表建了但没人写，余额永远0）。
+-- 积分余额唯一权威源是中枢（auth.meijian.top）的 user_points，本端不再维护副本。
+-- 保留本文件仅为迁移历史追溯；当前代码里已无任何读写本表的路径，新建环境可跳过。
+-- 新增/修改本文件前请先确认：业务代码里搜不到 user_points 引用。
 ﻿-- 用户积分表：用于积分兑换专属报告等功能
-CREATE TABLE IF NOT EXISTS user_points (
-  user_id TEXT PRIMARY KEY,
-  balance INTEGER NOT NULL DEFAULT 0,
-  updated_at INTEGER NOT NULL,
-  FOREIGN KEY (user_id) REFERENCES users(id)
-);
+-- CREATE TABLE IF NOT EXISTS user_points (
+--   user_id TEXT PRIMARY KEY,
+--   balance INTEGER NOT NULL DEFAULT 0,
+--   updated_at INTEGER NOT NULL,
+--   FOREIGN KEY (user_id) REFERENCES users(id)
+-- );

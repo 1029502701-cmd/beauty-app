@@ -1,11 +1,14 @@
 import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
-import { requireAuth, parseDeepseekJson, callTier3Flexible, getChatProviderConfig, callChatProvider, generateId, enrichTier3ProductRecs } from "../../_utils";
+import { requireAuth, parseDeepseekJson, callTier3Flexible, getChatProviderConfig, callChatProvider, generateId, enrichTier3ProductRecs, extractJwt } from "../../_utils";
 
 import type { Ctx } from "../../_utils";
 
 // POST /api/tier3/generate
-// 入参：tier1ReportId（可选）、questionnaireAnswers（4个维度选择结果）
-// 逻辑：检查可用 token → 查 tier1 报告 → 调用 DeepSeek 生成场景化建议 → 消耗 token → 纯新增写入 reports_tier3
+// 入参：tier1ReportId（可选）、questionnaireAnswers（4个维度选择结果）、fromPoints（可选）
+// 逻辑（token 系统已废弃）：专属报告解锁仅保留两条路径，互不依赖：
+//   路径 A：积分抵扣（fromPoints=true，前端已通过 /api/points/consume 扣积分，解锁方式记为 points/pay）
+//   路径 B：兑换码（生成时按代码查 tier3_redeem_codes 并原子置为 used，直接放行，解锁方式记为 redeem_code）
+// 生成流程：查 tier1 报告 → 调用 AI 生成场景化建议 → 纯新增写入 reports_tier3
 // 专属报告是用户真实消耗积分/付费/兑换码生成的产物，采用纯新增（append-only）模式：
 // 每次生成都是一条新记录，不删除旧记录；旧报告由 30 天 expire_at 机制自然过期清理，
 // 个人中心/档案页通过 "ORDER BY created_at DESC LIMIT 1" 展示当前最新一份。
@@ -34,26 +37,21 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
 
   // 直连中枢用户态积分接口（当前登录用户自己的 JWT；中枢按 user_id 操作 user_points）
   const AUTH_CENTER_BASE = 'https://auth.meijian.top';
-  const jwt = (() => {
-    const h = request.headers.get('Authorization') || '';
-    return h.startsWith('Bearer ') ? h.slice(7).trim() : h.trim();
-  })();
+  const jwt = extractJwt(request);
 
+  let bodyParsed: any;
   let tier1ReportId: string | undefined;
   let questionnaireAnswers: Record<string, string> | undefined;
   let fromPoints: boolean | undefined;
   let facePhotoKey: string | undefined;
+  let redeemCode: string | undefined;
   try {
-    const body = (await request.json()) as {
-      tier1ReportId?: string;
-      questionnaireAnswers?: Record<string, string>;
-      fromPoints?: boolean;
-      facePhotoKey?: string;
-    };
-    tier1ReportId = body.tier1ReportId;
-    questionnaireAnswers = body.questionnaireAnswers;
-    fromPoints = body.fromPoints;
-    facePhotoKey = body.facePhotoKey;
+    bodyParsed = await request.json();
+    tier1ReportId = bodyParsed?.tier1ReportId;
+    questionnaireAnswers = bodyParsed?.questionnaireAnswers;
+    fromPoints = bodyParsed?.fromPoints;
+    facePhotoKey = bodyParsed?.facePhotoKey;
+    redeemCode = bodyParsed?.redeemCode;
   } catch {
     return new Response(
       JSON.stringify({ error: "请求体不是合法 JSON" }),
@@ -69,20 +67,31 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
     );
   }
 
-  // 1. 检查生成权限来源（两条并列路径，互不依赖）：
-  //    路径 A：积分抵扣成功（fromPoints，前端已通过 /api/points/consume 扣积分）
-  //    路径 B：用户拥有可用 token（预检；真正消耗在步骤 4 的原子认领完成，先到先得）
+  // 1. 检查生成权限来源（token 系统已废弃，只保留两条路径，互不依赖）：
+  //    路径 A：积分抵扣成功（fromPoints=true，前端已通过 /api/points/consume 扣积分）
+  //    路径 B：兑换码（/api/tier3/redeem 已核销，tier3_redeem_codes 中该码 status='used'、user_id=当前用户；
+  //            前端传 redeemCode（码本身），直接查该条；不传则回落到"本用户最近一次已核销的码"）
   const isPointsUnlock = fromPoints === true;
-  let tokenRow: { id: string } | null = null;
+  let redeemRow: { code: string } | null = null;
   if (!isPointsUnlock) {
-    tokenRow = await env.DB.prepare(
-      `SELECT id FROM tokens WHERE user_id = ? AND status = 'unused' ORDER BY created_at LIMIT 1`
-    )
-      .bind(user.userId)
-      .first<{ id: string }>();
-    if (!tokenRow) {
+    if (redeemCode && redeemCode.trim()) {
+      const normCode = redeemCode.trim().toUpperCase();
+      redeemRow = await env.DB.prepare(
+        `SELECT code FROM tier3_redeem_codes WHERE code = ? AND status = 'used' AND user_id = ? LIMIT 1`
+      )
+        .bind(normCode, user.userId)
+        .first<{ code: string }>();
+    }
+    if (!redeemRow) {
+      redeemRow = await env.DB.prepare(
+        `SELECT code FROM tier3_redeem_codes WHERE user_id = ? AND status = 'used' ORDER BY used_at DESC LIMIT 1`
+      )
+        .bind(user.userId)
+        .first<{ code: string }>();
+    }
+    if (!redeemRow) {
       return new Response(
-        JSON.stringify({ error: "no_token", message: "无可用 token，请使用积分或兑换码/购买解锁" }),
+        JSON.stringify({ error: "no_redeem_code", message: "无可用兑换码资格，请使用积分或兑换码解锁" }),
         { status: 403, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -138,42 +147,75 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
   }
 
   // 3.5 商品补全已移至二层界面（/api/tier3/enrich-products），此处不再内联补全，,  // 避免 AI 生成 13s + 补全 8s 串行超 30s wall-clock。二层兜底文案「正在匹配中…」保底。
-  // 4. 原子认领 token（仅 token 路径）：仅当它仍为 unused 时才置为 used（防止并发双击时
-  //    同一个 token 被两个请求同时选中、一份钱生成两份报告；抢到的请求正常写报告，
-  //    抢不到的返回 403 no_token，不写报告）。积分路径不消耗 token，tokenRow 为 null。
+  // 4. 兑换码路径：核销已在 /api/tier3/redeem 完成（status='used'、user_id、used_at 已写入）。
+  //    一人一报告：查该用户已落库的兑换码报告数，>=1 则拒绝再生成（防重复生成）。
   const now = Math.floor(Date.now() / 1000);
-  if (tokenRow) {
-    const claim = await env.DB.prepare(
-      `UPDATE tokens SET status = 'used', used_at = ? WHERE id = ? AND status = 'unused'`
+  if (redeemRow) {
+    const countRow = await env.DB.prepare(
+      `SELECT COUNT(*) AS cnt FROM reports_tier3 WHERE user_id = ? AND unlock_method = 'redeem_code'`
     )
-      .bind(now, tokenRow.id)
-      .run();
-    if (!claim.meta?.changes) {
+      .bind(user.userId)
+      .first<{ cnt: number }>();
+    const tQ = Date.now();
+    console.log(`[tier3/generate] COUNT redeem_code reports done in ${Date.now() - tQ}ms`);
+    if ((countRow?.cnt ?? 0) >= 1) {
       return new Response(
-        JSON.stringify({ error: "no_token", message: "token 刚被另一请求消耗，请重新生成" }),
+        JSON.stringify({ error: "redeem_code_used", message: "该兑换码已用于生成报告，每人限一份" }),
         { status: 403, headers: { "Content-Type": "application/json" } }
       );
     }
   }
 
+
   // 5. 写入 reports_tier3（纯新增：不删除旧记录，旧报告由 30 天 expire_at 机制自然清理）
-  //    token_id 可空：积分解锁的报告不关联 token；token 解锁的报告关联已消耗的 token。
+  //    生产库现状（2026-09 已核实）：token_id NOT NULL 且无 unlock_method 列（已迁移补列）。
+  //    因此兑换码解锁 token_id 写码本身；积分解锁写 'points' 占位（保持 NOT NULL 约束）。
   const reportId = generateId();
-  // 3档报告生成成功 → 直连中枢 /api/points/grant-tier3（带用户 JWT；中枢要求 {amount, related_id}，
-  // 按 related_id 幂等去重：amount 服务端写死 1 积分，related_id = 本条 tier3 报告ID，一份报告只赠一次）
-  let tier3Points: { granted: boolean; balance: number } | null = null;
-  // grant-tier3 skipped (edge proxy 7s limit)
   const expireAt = now + 30 * 24 * 60 * 60;
   const scenario = questionnaireAnswers.scenario ?? "日常通勤";
 
+  // 兜底建列：pragma_table_info 确认列是否存在，不存在则 ALTER 补列（幂等）
+  let hasUnlockMethodCol = true;
+  try {
+    const cols = await env.DB.prepare(
+      `SELECT name FROM pragma_table_info('reports_tier3') WHERE name = 'unlock_method'`
+    ).all<{ name: string }>();
+    hasUnlockMethodCol = (cols.results?.length ?? 0) > 0;
+
+
+
+
+
+    if (!hasUnlockMethodCol) {
+      await env.DB.prepare(`ALTER TABLE reports_tier3 ADD COLUMN unlock_method TEXT`).run();
+      hasUnlockMethodCol = true;
+    }
+  } catch (e) {
+    console.warn("[tier3/generate] unlock_method ensure failed, use legacy insert:", e);
+    hasUnlockMethodCol = false;
+  }
+
+  const unlockMethod = redeemRow ? 'redeem_code' : 'points';
+  // token_id 占位（token 系统已废弃，仅满足 reports_tier3 历史外键）：
+  // 兑换码路径 id=码本身；积分路径 id='points'。先幂等兜底占位行，再写报告。
+  const tokenId = redeemRow ? redeemRow.code : 'points';
+  try {
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO tokens (id, status, user_id, price, order_id, created_at) VALUES (?, 'inactive', ?, 0, NULL, ?)`
+    ).bind(tokenId, user.userId, now).run();
+  } catch (e) {
+    console.warn('[tier3/generate] tokens placeholder ensure failed:', e);
+  }
+  if (hasUnlockMethodCol) {
   await env.DB.prepare(
-    `INSERT INTO reports_tier3 (id, user_id, token_id, scenario, quiz_answers, content, created_at, expire_at, face_photo_key)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO reports_tier3 (id, user_id, token_id, unlock_method, scenario, quiz_answers, content, created_at, expire_at, face_photo_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
       reportId,
       user.userId,
-      tokenRow ? tokenRow.id : null,
+      tokenId,
+      unlockMethod,
       scenario,
       JSON.stringify(questionnaireAnswers),
       JSON.stringify(reportContent),
@@ -182,6 +224,25 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
       facePhotoKey || null
     )
     .run();
+  } else {
+    // 列不存在且补列失败：降级为不带 unlock_method 的 INSERT，token_id 仍写码或占位
+    await env.DB.prepare(
+      `INSERT INTO reports_tier3 (id, user_id, token_id, scenario, quiz_answers, content, created_at, expire_at, face_photo_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(
+        reportId,
+        user.userId,
+        tokenId,
+        scenario,
+        JSON.stringify(questionnaireAnswers),
+        JSON.stringify(reportContent),
+        now,
+        expireAt,
+        facePhotoKey || null
+      )
+      .run();
+  }
 
   // 积分解锁路径：生成成功即完成一次解锁，顺带把本端"已解锁资格"落库（幂等，不重复写）。
   // 这样即便前端漏调 /points-unlock-record，资格也一定有持久化记录，刷新/换设备不丢。
@@ -207,7 +268,7 @@ async function handleTier3Generate(context: Parameters<typeof POST>[0]) {
   // AI image generation skipped (edge proxy 7s limit),  let aiImageUrl: string | null = null;
 
   return new Response(
-    JSON.stringify({ id: reportId, content: reportContent, expireAt, facePhotoKey, aiImageUrl, points: tier3Points, balance: latestBalance }),
+    JSON.stringify({ id: reportId, content: reportContent, expireAt, facePhotoKey, aiImageUrl, balance: latestBalance }),
     { headers: { "Content-Type": "application/json" } }
   );
 };

@@ -11,7 +11,7 @@
  * 阶段序列：vision → analysis → step1..step6 → summary → enrich → reasons(→ready)
  */
 import type { Ctx } from "./_utils";
-import { parseDeepseekJson, generateProductReasonsFlexible, beijingDate, getChatProviderConfig, callChatProvider } from "./_utils";
+import { parseDeepseekJson, generateProductReasonsFlexible, beijingDate, getChatProviderConfig, callChatProvider, writeProfileFacts } from "./_utils";
 import { findProductByKeyword, findCuratedProduct } from "./_taobao";
 
 export const TIER2_STEP_DEFS = [
@@ -402,6 +402,7 @@ function assembleFinalReport(prog: Tier2Progress): Record<string, unknown> {
     productRecs[def.key] = (((prog.steps || {})[def.key] || {}).products as unknown[]) || [];
   }
   return {
+    faceShape: str(fa.faceShape),
     coreConclusion: prog.summary?.coreConclusion || str(fa.highlight) || "你的专属妆容风格方案已生成",
     style: prog.summary?.style || str(fa.personaTags) || "温柔知性风",
     steps: TIER2_STEP_DEFS.map((def) => ({
@@ -507,6 +508,15 @@ export async function advanceTier2Stage(
     }
     await setTier2Status(env, tier2Id, "ready");
     await recordTier2DailyUsage(env, tier2Id);
+    // 结果确定后写画像标签（脸型/妆容风格）：仅当本次推进来自用户自己的 /tier2/status 轮询
+    // （带用户 JWT）时才有写入凭证；scheduled-worker 兜底推进无用户 JWT，跳过（tier1 侧已覆盖）。
+    const callerJwt = (env as any).__tier2_caller_jwt || "";
+    if (callerJwt) {
+      void writeProfileFacts(callerJwt, [
+        { key: "face_shape", value: String((final as any).faceShape || "") },
+        { key: "makeup_style", value: String(final.style || "") },
+      ].filter((f) => f.value !== ""));
+    }
     console.log(`[tier2/stages] ${tier2Id} ready`);
     return { generationStatus: "ready", advanced: true };
   }

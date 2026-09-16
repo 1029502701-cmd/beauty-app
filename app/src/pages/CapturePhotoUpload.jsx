@@ -1,7 +1,7 @@
-﻿import { useState, useCallback, useRef, useEffect, useContext } from 'react';
+import { useState, useCallback, useRef, useEffect, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext.jsx';
 import { BASE } from '../api.js';
-import { checkAndResize } from '../utils/imageResize.js';
+import { checkAndResize, isProbablyHeic, fileToJpegBlob } from '../utils/imageResize.js';
 
 /* --- 判断是否在 Capacitor/小程序 环境 --- */
 const isNativeEnv = typeof navigator !== 'undefined' && !!navigator.userAgent?.match(/(iPhone|iPad|iPod|Android)/i);
@@ -55,9 +55,9 @@ function resizeDataUrl(dataUrl, maxSide = 1024) {
 }
 
 async function callAnalyze(base64, token, signal) {
-  const effectiveToken = token || (typeof localStorage !== 'undefined' ? localStorage.getItem('session_token') : null);
+  
   if (typeof base64 !== 'string' || !base64) {
-    throw new Error('无效的图片数据，请重新选择照片');
+    throw new Error('图片数据异常，请重新选择照片');
   }
   if (!effectiveToken) {
     throw new Error('请先登录');
@@ -73,9 +73,8 @@ async function callAnalyze(base64, token, signal) {
   }
   const form = new FormData();
   form.append('photo', blob, 'capture.jpg');
-  const res = await fetch(BASE + '/tier1/analyze', {
+  const res = await fetch(BASE + '/tier1/analyze', { credentials: 'include',
     method: 'POST',
-    headers: { Authorization: `Bearer ${effectiveToken}`},
     body: form,
     signal,
   });
@@ -170,17 +169,32 @@ export default function CapturePhotoUpload({ onComplete, onCancel, compact }) {
     fileInputRef.current?.click();
   }, []);
 
+  const handleReupload = useCallback(() => {
+    setStage('select');
+    setError(null);
+    setApiError(null);
+    setPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    setTimeout(() => fileInputRef.current?.click(), 0);
+  }, []);
+
   const handleFileChange = useCallback(async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const dataUrl = await checkAndResize(file);
+      let dataUrl;
+      if (await isProbablyHeic(file)) {
+        const jpegBlob = await fileToJpegBlob(file);
+        dataUrl = await checkAndResize(jpegBlob);
+      } else {
+        dataUrl = await checkAndResize(file);
+      }
       if (typeof dataUrl !== 'string') throw new Error('图片处理失败，请重试');
       setPreview(dataUrl);
       setStage('analyzing');
       startAnalysis(dataUrl);
-    } catch (e) {
-      setError(e.message);
+    } catch (err) {
+      setError(err.message);
       setStage('error');
     }
     e.target.value = '';
@@ -288,6 +302,7 @@ export default function CapturePhotoUpload({ onComplete, onCancel, compact }) {
           <div className="capture-error-icon">⚠️</div>
           <p className="capture-error-text">{error || '分析失败，请稍后重试'}</p>
           <button className="capture-retry-btn" onClick={handleRetry}>重试</button>
+          <button className="capture-retry-btn capture-reupload-btn" onClick={handleReupload}>重新选择</button>
           {!compact && <button className="capture-cancel-btn" onClick={handleCancel}>取消</button>}
         </div>
       )}

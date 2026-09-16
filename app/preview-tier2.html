@@ -1,0 +1,350 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>进阶报告 UI 预览</title>
+<style>
+.admin-layout { display: flex; min-height: 100vh; background: #f9fafb; }
+.admin-sidebar { width: 220px; background: #fff; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; flex-shrink: 0; }
+.admin-sidebar-header { padding: 20px 16px; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; gap: 10px; }
+.admin-sidebar-logo { font-size: 24px; }
+.admin-sidebar-title { font-size: 16px; font-weight: 600; color: #111827; }
+.admin-nav { flex: 1; padding: 12px 8px; display: flex; flex-direction: column; gap: 4px; }
+.admin-nav-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 8px; border: none; background: transparent; cursor: pointer; font-size: 14px; color: #6b7280; transition: background .15s, color .15s; text-align: left; width: 100%; }
+.admin-nav-item:hover:not(:disabled) { background: #fdf2f8; color: #db2777; }
+.admin-nav-item--active { background: #fdf2f8; color: #db2777; font-weight: 500; }
+.admin-nav-item:disabled { opacity: .5; cursor: not-allowed; }
+.admin-nav-badge { font-size: 11px; color: #9ca3af; background: #f3f4f6; padding: 2px 6px; border-radius: 4px; }
+.admin-sidebar-footer { padding: 12px 8px; border-top: 1px solid #e5e7eb; }
+.admin-logout-btn { width: 100%; padding: 8px 12px; font-size: 13px; color: #6b7280; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; cursor: pointer; }
+.admin-logout-btn:hover { background: #fee2e2; color: #dc2626; border-color: #fecaca; }
+.admin-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.admin-topbar { padding: 16px 24px; border-bottom: 1px solid #e5e7eb; background: #fff; display: flex; align-items: center; justify-content: space-between; }
+.admin-page-title { font-size: 18px; font-weight: 600; color: #111827; margin: 0; }
+.admin-greeting { font-size: 14px; color: #6b7280; }
+.admin-content { flex: 1; padding: 24px; overflow-y: auto; }
+.admin-login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #f9fafb; }
+.admin-login-card { width: 100%; max-width: 380px; background: #fff; border-radius: 16px; border: 1px solid #e5e7eb; padding: 32px; box-shadow: 0 4px 12px rgba(0,0,0,.06); }
+.admin-login-header { text-align: center; margin-bottom: 24px; }
+.admin-login-icon { font-size: 40px; display: block; margin-bottom: 8px; }
+.admin-login-header h1 { font-size: 22px; font-weight: 600; color: #111827; margin: 0 0 4px; }
+.admin-login-sub { font-size: 14px; color: #6b7280; margin: 0; }
+.admin-login-form { display: flex; flex-direction: column; gap: 16px; }
+.admin-input-group { display: flex; flex-direction: column; gap: 6px; }
+.admin-input-group label { font-size: 13px; font-weight: 500; color: #374151; }
+.admin-input { height: 40px; padding: 0 12px; font-size: 14px; border: 1px solid #e5e7eb; border-radius: 8px; outline: none; transition: border-color .15s; width: 100%; box-sizing: border-box; }
+.admin-input:focus { border-color: #db2777; }
+.admin-login-btn { height: 44px; font-size: 15px; font-weight: 500; color: #fff; background: #db2777; border: none; border-radius: 8px; cursor: pointer; }
+.admin-login-btn:hover:not(:disabled) { opacity: .9; }
+.admin-login-btn:disabled { opacity: .5; cursor: not-allowed; }
+.admin-error { color: #dc2626; font-size: 13px; margin: 0; }
+.admin-login-back { display: block; text-align: center; font-size: 13px; color: #6b7280; text-decoration: none; margin-top: 16px; }
+.admin-login-back:hover { color: #db2777; }
+.admin-loading, .admin-empty { padding: 40px 0; text-align: center; color: #6b7280; font-size: 14px; }
+.admin-filter-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.admin-select { height: 36px; padding: 0 10px; font-size: 14px; border: 1px solid #e5e7eb; border-radius: 6px; outline: none; background: #fff; cursor: pointer; }
+.admin-count { font-size: 13px; color: #6b7280; }
+.admin-influencer-list { display: flex; flex-direction: column; gap: 12px; }
+.admin-influencer-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start; }
+.admin-influencer-info { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.admin-influencer-name { font-size: 15px; font-weight: 600; color: #111827; }
+.admin-influencer-bio { font-size: 13px; color: #6b7280; line-height: 1.5; }
+.admin-influencer-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.admin-tag { font-size: 12px; padding: 2px 8px; background: #fdf2f8; color: #db2777; border: 1px solid #fbcfe8; border-radius: 12px; }
+.admin-influencer-links { display: flex; gap: 8px; flex-wrap: wrap; }
+.admin-platform { font-size: 12px; padding: 2px 8px; background: #f3f4f6; color: #6b7280; border-radius: 4px; }
+.admin-link { font-size: 12px; color: #6b7280; text-decoration: none; }
+.admin-link:hover { color: #db2777; }
+.admin-photo { width: 100px; height: 100px; object-fit: cover; border-radius: 8px; border: 1px solid #e5e7eb; }
+.admin-influencer-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.admin-status-badge { font-size: 12px; padding: 2px 8px; border-radius: 12px; font-weight: 500; }
+.admin-status--pending { background: #fef3c7; color: #d97706; }
+.admin-status--approved { background: #d1fae5; color: #059669; }
+.admin-status--rejected { background: #fee2e2; color: #dc2626; }
+.admin-time { font-size: 11px; color: #9ca3af; }
+.admin-influencer-actions { display: flex; gap: 8px; grid-column: 1 / -1; padding-top: 8px; border-top: 1px solid #f3f4f6; }
+.admin-btn-approve { height: 32px; padding: 0 16px; font-size: 13px; font-weight: 500; color: #fff; background: #059669; border: none; border-radius: 6px; cursor: pointer; }
+.admin-btn-approve:hover { opacity: .85; }
+.admin-btn-reject { height: 32px; padding: 0 16px; font-size: 13px; font-weight: 500; color: #dc2626; background: #fee2e2; border: 1px solid #fecaca; border-radius: 6px; cursor: pointer; }
+.admin-btn-reject:hover { opacity: .85; }
+.admin-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.admin-modal { background: #fff; border-radius: 12px; padding: 24px; width: 90%; max-width: 400px; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+.admin-modal h3 { margin: 0 0 8px; font-size: 16px; color: #111827; }
+.admin-modal-hint { margin: 0 0 16px; font-size: 13px; color: #6b7280; }
+.admin-textarea { width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid #e5e7eb; border-radius: 8px; resize: vertical; outline: none; box-sizing: border-box; font-family: inherit; }
+.admin-textarea:focus { border-color: #db2777; }
+.admin-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.admin-btn-cancel { height: 36px; padding: 0 16px; font-size: 14px; color: #6b7280; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 6px; cursor: pointer; }
+.admin-btn-cancel:hover { background: #e5e7eb; }
+.admin-btn-confirm { height: 36px; padding: 0 16px; font-size: 14px; font-weight: 500; color: #fff; background: #dc2626; border: none; border-radius: 6px; cursor: pointer; }
+.admin-btn-confirm:hover:not(:disabled) { opacity: .85; }
+.admin-btn-confirm:disabled { opacity: .5; cursor: not-allowed; }
+.admin-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #111827; color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 14px; z-index: 2000; animation: admin-fade-in .2s ease; }
+@keyframes admin-fade-in { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+.admin-config-list { display: flex; flex-direction: column; gap: 16px; }
+.admin-config-item { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; }
+.admin-config-label-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.admin-config-label { font-size: 14px; font-weight: 500; color: #111827; }
+.admin-config-key { font-size: 12px; color: #9ca3af; font-family: monospace; }
+.admin-config-desc { font-size: 12px; color: #6b7280; margin: 0 0 10px; }
+.admin-config-input-row { display: flex; gap: 8px; align-items: center; }
+.admin-config-input { flex: 1; height: 36px; padding: 0 10px; font-size: 14px; border: 1px solid #e5e7eb; border-radius: 6px; outline: none; }
+.admin-config-input:focus { border-color: #db2777; }
+.admin-config-unit { font-size: 13px; color: #6b7280; white-space: nowrap; }
+.admin-contact-array { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.admin-contact-row { display: flex; gap: 6px; align-items: center; }
+.admin-contact-platform { width: 100px; height: 36px; padding: 0 10px; font-size: 14px; border: 1px solid #e5e7eb; border-radius: 6px; outline: none; flex-shrink: 0; }
+.admin-contact-platform:focus { border-color: #db2777; }
+.admin-contact-account { flex: 1; height: 36px; padding: 0 10px; font-size: 14px; border: 1px solid #e5e7eb; border-radius: 6px; outline: none; }
+.admin-contact-account:focus { border-color: #db2777; }
+.admin-contact-del { flex-shrink: 0; width: 36px; height: 36px; font-size: 14px; color: #9ca3af; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; cursor: pointer; }
+.admin-contact-del:hover { color: #dc2626; border-color: #fecaca; background: #fef2f2; }
+.admin-contact-add { align-self: flex-start; height: 32px; padding: 0 12px; font-size: 13px; color: #db2777; background: transparent; border: 1px dashed #fbcfe8; border-radius: 6px; cursor: pointer; }
+.admin-contact-add:hover { background: #fdf2f8; }
+
+.admin-btn-save { height: 36px; padding: 0 14px; font-size: 13px; font-weight: 500; color: #db2777; background: #fdf2f8; border: 1px solid #fbcfe8; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.admin-btn-save:hover:not(:disabled) { background: #fce7f3; }
+.admin-btn-save:disabled { opacity: .5; cursor: not-allowed; }
+.admin-questionnaire-list { display: flex; flex-direction: column; gap: 20px; }
+.admin-questionnaire-dim { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; }
+.admin-questionnaire-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.admin-questionnaire-title { font-size: 15px; font-weight: 500; color: #111827; }
+.admin-questionnaire-key { font-size: 12px; color: #9ca3af; font-family: monospace; }
+.admin-option-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.admin-option-row { display: flex; gap: 8px; align-items: center; }
+.admin-option-input { flex: 1; height: 34px; padding: 0 10px; font-size: 14px; border: 1px solid #e5e7eb; border-radius: 6px; outline: none; }
+.admin-option-input:focus { border-color: #db2777; }
+.admin-btn-remove { height: 34px; width: 34px; font-size: 14px; color: #dc2626; background: #fee2e2; border: 1px solid #fecaca; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.admin-btn-remove:hover { opacity: .8; }
+.admin-btn-add-option { height: 32px; padding: 0 12px; font-size: 13px; color: #6b7280; background: #f9fafb; border: 1px dashed #d1d5db; border-radius: 6px; cursor: pointer; }
+.admin-btn-add-option:hover { border-color: #db2777; color: #db2777; background: #fdf2f8; }
+.admin-placeholder { text-align: center; padding: 60px 20px; color: #6b7280; }
+.admin-placeholder-icon { font-size: 48px; margin-bottom: 12px; }
+.admin-placeholder h2 { margin: 0 0 8px; font-size: 18px; color: #111827; }
+.admin-placeholder p { margin: 0; font-size: 14px; }
+
+
+/* Tier2 新卡片布局 */
+.t2-page{display:flex;flex-direction:column;gap:16px;padding:20px 16px 40px;max-width:480px;margin:0 auto;min-height:100svh;background:linear-gradient(180deg,#fdf2f8 0%,#f5f3ff 30%,#fdfaf8 60%,#faf5f0 100%);background-attachment:fixed;box-sizing:border-box}
+.t2-back-btn{font-size:16px;color:#6b7280;background:none;border:none;cursor:pointer;padding:8px 0;transition:color .15s}
+.t2-back-btn:hover{color:#db2777}
+.t2-empty{padding:40px 0;text-align:center;color:#9ca3af;font-size:14px}
+.t2-loading,.t2-error{display:flex;flex-direction:column;align-items:center;gap:16px;padding:60px 20px;text-align:center;color:#6b7280}
+.t2-spinner{width:32px;height:32px;border:3px solid #e5e7eb;border-top-color:#db2777;border-radius:50%;animation:t2spin .8s linear infinite}
+@keyframes t2spin{to{transform:rotate(360deg)}}
+.t2-error-icon{font-size:40px}
+.t2-error-text{margin:0;font-size:14px;color:#dc2626}
+.t2-card{background:#fff;border:1px solid rgba(252,203,232,.55);border-radius:18px;padding:18px;position:relative;overflow:hidden;box-shadow:0 6px 24px rgba(236,72,153,.06),0 1px 3px rgba(124,58,237,.05)}
+.t2-card-corner{position:absolute;top:0;left:0;width:50%;height:33%;pointer-events:none;z-index:1}
+.t2-card-corner::before{content:'';position:absolute;top:0;left:0;width:100%;height:3px;background:linear-gradient(90deg,#111827 0%,transparent 100%);box-shadow:0 2px 6px rgba(0,0,0,.15)}
+.t2-card-corner::after{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:linear-gradient(180deg,#111827 0%,transparent 100%);box-shadow:2px 0 6px rgba(0,0,0,.15)}
+/* ── Hero report card (redesigned) ── */
+.t2-card--hero{background:linear-gradient(150deg,#fff0fa 0%,#faf5ff 45%,#fff 100%);border:1px solid #fbcfe8;border-radius:22px;padding:24px 20px;box-shadow:0 10px 32px rgba(236,72,153,.10),0 2px 8px rgba(139,92,246,.07);position:relative;overflow:hidden}
+.t2-card--hero::before{content:'';position:absolute;top:-60px;right:-40px;width:200px;height:200px;border-radius:50%;background:radial-gradient(circle,rgba(236,72,153,.12) 0%,transparent 70%);pointer-events:none}
+.t2-card--hero::after{content:'';position:absolute;bottom:-50px;left:-30px;width:160px;height:160px;border-radius:50%;background:radial-gradient(circle,rgba(139,92,246,.10) 0%,transparent 70%);pointer-events:none}
+.t2-hero-top{display:flex;align-items:flex-start;gap:14px;margin-bottom:16px;position:relative}
+.t2-hero-portrait{width:88px;height:110px;object-fit:cover;border-radius:18px;flex-shrink:0;box-shadow:0 8px 20px rgba(236,72,153,.20),inset 0 0 0 2px rgba(255,255,255,.6);border:2px solid #fff}
+.t2-hero-portrait--ph{display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#fbe9f1,#f6d7e4);box-shadow:none}
+.t2-hero-right{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;text-align:center;gap:5px}
+.t2-hero-badge{font-size:9px;color:#a855f7;letter-spacing:2px;text-transform:uppercase;font-weight:600;background:rgba(255,255,255,.65);border:1px solid #e9d5ff;border-radius:20px;padding:3px 10px}
+.t2-hero-main-title{font-size:28px;font-weight:800;background:linear-gradient(90deg,#be185d 0%,#7c3aed 100%);-webkit-background-clip:text;background-clip:text;color:transparent;margin:0;line-height:1.25;letter-spacing:.5px}
+.t2-hero-subtitle{font-size:13px;color:#831843;margin:0;display:flex;align-items:center;gap:8px;font-weight:500;justify-content:center}
+.t2-hero-line{width:20px;height:1px;background:linear-gradient(90deg,transparent,#f0abcf);flex-shrink:0}
+
+.t2-hero-decode{border-top:1px dashed #f0abcf;padding-top:14px;background:rgba(255,255,255,.55);border-radius:14px;padding:14px;margin:0}
+.t2-hero-decode-label{font-size:11px;font-weight:700;color:#9d174d;margin:0 0 8px;letter-spacing:1px;text-transform:uppercase;display:flex;align-items:center;gap:5px}
+.t2-hero-decode-label::before{content:'';width:14px;height:2px;background:linear-gradient(90deg,#ec4899,#8b5cf6);border-radius:2px;flex-shrink:0}
+.t2-hero-decode-text{font-size:13px;color:#4a2540;line-height:1.8;margin:0 0 12px}
+.t2-hero-keywords{display:flex;flex-wrap:wrap;gap:6px}
+.t2-hero-kw{font-size:11px;padding:4px 12px;background:linear-gradient(135deg,#fdf2f8,#f5f3ff);border:1px solid #f0abcf;border-radius:20px;color:#9d174d;font-weight:500;box-shadow:0 2px 6px rgba(236,72,153,.08)}
+.t2-section-title{font-size:16px;font-weight:700;background:linear-gradient(90deg,#be185d,#7c3aed);-webkit-background-clip:text;background-clip:text;color:transparent;margin:0 0 14px;display:flex;align-items:center;gap:6px}
+.t2-section-title::before{content:'';width:16px;height:2px;background:linear-gradient(90deg,#ec4899,#8b5cf6);border-radius:2px;flex-shrink:0}
+.t2-ai-cta{display:flex;flex-direction:column;align-items:center;gap:8px;padding:20px 0}
+.t2-ai-hint{font-size:12px;color:#9ca3af;margin:0}
+.t2-ai-loading{padding:20px 0;text-align:center;color:#6b7280;font-size:14px}
+.t2-ai-result{margin-top:8px}
+.t2-ai-img{width:100%;border-radius:8px;border:1px solid #e5e7eb}
+.t2-ai-fail{display:flex;flex-direction:column;gap:8px;padding:12px 0}
+.t2-fail-text{font-size:13px;color:#dc2626;margin:0}
+.t2-dim-card{padding-bottom:12px;overflow:visible}
+.t2-dim-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.t2-dim-header-left{display:flex;align-items:center;gap:8px}
+.t2-dim-icon{font-size:18px}
+.t2-dim-title{font-size:15px;font-weight:600;color:#111827;margin:0}
+.t2-lightbulb-btn{background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #fcd34d;border-radius:20px;padding:4px 12px;font-size:13px;cursor:pointer;transition:all .2s;box-shadow:0 2px 6px rgba(252,211,77,.3)}
+.t2-lightbulb-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(252,211,77,.45);background:linear-gradient(135deg,#fde68a,#fcd34d)}
+.t2-lightbulb-btn:active{transform:translateY(0)}
+.t2-lightbulb-btn:hover{background:#fef3c7;border-color:#fbbf24}
+.t2-dim-section{margin-bottom:12px}
+.t2-dim-section:last-child{margin-bottom:0}
+.t2-dim-section-label{font-size:12px;font-weight:600;color:#6b7280;margin:0 0 4px;text-transform:uppercase;letter-spacing:.5px}
+.t2-dim-section-text{font-size:13px;color:#374151;line-height:1.6;margin:0}
+.t2-dim-pros .t2-dim-section-label{color:#059669}
+.t2-dim-reason .t2-dim-section-label{color:#2563eb}
+.t2-dim-tips .t2-dim-section-label{color:#d97706}
+.t2-product-section{margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb}
+.t2-product-section-title{font-size:13px;font-weight:600;color:#111827;margin:0 0 10px}
+.t2-product-card{display:flex;flex-direction:column;gap:12px;padding:14px;background:linear-gradient(135deg,#fffdfb,#fdf2f8);border:1px solid #fbcfe8;border-radius:14px;margin-bottom:10px;box-shadow:0 3px 10px rgba(236,72,153,.06)}
+.t2-product-row{display:flex;gap:10px;align-items:flex-start}
+.t2-product-reason{font-size:11px;line-height:1.45;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:5px 8px}
+.t2-product-curated-tag{display:inline-block;font-size:10px;font-weight:600;color:#6d28d9;background:#ede9fe;border:1px solid #ddd6fe;border-radius:4px;padding:1px 6px;margin-right:6px;vertical-align:middle}
+.t2-product-card:last-child{margin-bottom:0}
+.t2-product-img{width:60px;height:60px;object-fit:cover;border-radius:6px;flex-shrink:0}
+.t2-product-info{flex:1;display:flex;flex-direction:column;gap:4px;min-width:0}
+.t2-product-name{font-size:13px;font-weight:500;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t2-product-desc{font-size:11px;color:#6b7280;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.t2-product-price{font-size:12px;color:#dc2626;font-weight:600}
+.t2-product-link-row{display:flex;align-items:center;gap:6px;margin-top:2px}
+.t2-product-link-text{font-size:10px;color:#9ca3af;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t2-copy-btn{background:none;border:1px solid #e5e7eb;border-radius:4px;padding:2px 6px;font-size:11px;cursor:pointer;flex-shrink:0;transition:all .15s}
+.t2-copy-btn:hover{background:#e5e7eb}
+.t2-formula-text{font-size:13px;color:#374151;line-height:1.7;margin:0}
+.t2-summary-card{background:linear-gradient(135deg,#fffdf5,#fef9c3 60%,#fde68a);border:1px solid #fcd34d;border-radius:18px;padding:18px;box-shadow:0 6px 20px rgba(252,211,77,.15)}
+.t2-summary-card .t2-section-title{background:linear-gradient(90deg,#92400e,#d97706);-webkit-background-clip:text;background-clip:text;color:transparent}
+.t2-summary-text{font-size:13px;color:#92400e;line-height:1.7;margin:0}
+.t2-influencer-placeholder{text-align:center;padding:24px 16px}
+.t2-influencer-hint{font-size:13px;color:#9ca3af;margin:8px 0 0}
+.t2-tier3-hook{background:linear-gradient(135deg,#111827 0%,#374151 100%);border:none;color:#fff}
+.t2-tier3-hook-content{display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center}
+.t2-tier3-hook-icon{font-size:28px}
+.t2-tier3-hook-text{font-size:14px;color:#d1d5db;line-height:1.6;margin:0}
+.t2-btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 20px;font-size:14px;font-weight:500;color:#fff;border:none;border-radius:8px;cursor:pointer;transition:filter .15s}
+.t2-btn:hover:not(:disabled){filter:brightness(.85)}
+.t2-btn:disabled{opacity:.5;cursor:not-allowed}
+.t2-btn-small{padding:8px 16px;font-size:13px}
+.t2-btn-unlock{}
+.t2-btn-retry{background:#6b7280}
+.t2-btn-hook{color:#111827;font-weight:600}
+
+.t2-footer{padding:8px 0 16px}
+.t2-share-btn{width:100%;height:48px;font-size:15px;font-weight:600;color:#fff;border:none;border-radius:24px;cursor:pointer;transition:all .25s;box-shadow:0 6px 20px rgba(139,92,246,.30)}
+.t2-share-btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 10px 28px rgba(139,92,246,.42)}
+.t2-share-btn:active:not(:disabled){transform:translateY(0);box-shadow:0 4px 14px rgba(139,92,246,.25)}
+.t2-share-btn:hover:not(:disabled){filter:brightness(.85)}
+.admin-color-picker-row { display: flex; gap: 8px; align-items: center; }
+.admin-color-input { width: 40px; height: 32px; border: 1px solid #e5e7eb; border-radius: 6px; padding: 2px; cursor: pointer; }
+.admin-color-text-input { flex: 1; height: 32px; padding: 0 10px; font-size: 13px; font-family: monospace; border: 1px solid #e5e7eb; border-radius: 6px; outline: none; }
+.admin-color-preview { display: flex; align-items: center; gap: 8px; padding: 4px 10px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 13px; color: #374151; }
+
+.t2-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:flex-end;justify-content:center}
+.t2-modal-overlay-inner{background:linear-gradient(180deg,#fff 0%,#fdf2f8 100%);border-radius:22px 22px 0 0;width:100%;max-width:480px;max-height:85vh;overflow-y:auto;padding:24px 18px 40px;position:relative;box-shadow:0 -12px 40px rgba(139,92,246,.18)}
+.t2-modal-close{position:absolute;top:12px;right:12px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:50%;width:28px;height:28px;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#6b7280}
+.t2-modal-close:hover{background:#e5e7eb}
+.t2-modal-title{font-size:15px;font-weight:600;color:#111827;margin:0 0 12px 0;padding-right:36px}
+.t2-modal-empty{text-align:center;color:#94a3b8;font-size:13px;padding:16px 0}
+/* ── Tier2 step cards (01-06 makeup routine) — new visual style ── */
+.t2-page{display:flex;flex-direction:column;gap:14px;padding:20px 16px 40px;max-width:480px;margin:0 auto;min-height:100svh;background:linear-gradient(180deg,#fdf2f8 0%,#f5f3ff 35%,#fdfaf8 100%);box-sizing:border-box}
+.t2-step-card{display:flex;flex-direction:column;gap:0;background:#fff;border:1px solid rgba(252,203,232,.55);border-radius:18px;overflow:hidden;box-shadow:0 6px 20px rgba(236,72,153,.07)}
+
+.t2-step-card{display:flex;flex-direction:column;gap:0;background:#fff;border:1px solid rgba(252,203,232,.55);border-radius:18px;overflow:hidden;box-shadow:0 6px 20px rgba(236,72,153,.07);padding:18px;position:relative}
+.t2-step-card::before{content:'';position:absolute;top:0;left:0;width:100%;height:3px;background:linear-gradient(90deg,#ec4899,#8b5cf6,#f0abcf);border-radius:3px 3px 0 0}
+.t2-step-title-row{display:flex;align-items:center;gap:6px;margin-bottom:10px}
+.t2-step-title{font-size:15px;font-weight:700;color:#1a1a1a;margin:0;flex:1;letter-spacing:.3px}
+.t2-step-section{margin-bottom:8px}
+.t2-step-section:last-child{margin-bottom:0}
+.t2-step-section-label{font-size:10px;font-weight:700;color:#9d174d;margin:0 0 4px;text-transform:uppercase;letter-spacing:1px;display:flex;align-items:center;gap:5px}
+.t2-step-section-label::before{content:'';width:8px;height:8px;border-radius:2px;background:linear-gradient(135deg,#ec4899,#8b5cf6);flex-shrink:0}
+.t2-step-section-text{font-size:12.5px;color:#4a3550;line-height:1.75;margin:0}
+.t2-step-why .t2-step-section-label{color:#4f46e5}
+.t2-step-why .t2-step-section-label::before{background:linear-gradient(135deg,#6366f1,#8b5cf6)}
+.t2-step-why .t2-step-section-text{color:#1e40af}
+.t2-step-detail .t2-step-section-label{color:#7c3aed}
+.t2-step-detail .t2-step-section-label::before{background:linear-gradient(135deg,#8b5cf6,#d946ef)}
+.t2-step-detail-text{font-size:11.5px;color:#5b21b6;line-height:1.8;margin:0;background:linear-gradient(90deg,rgba(245,243,255,.6),transparent);padding:8px 10px;border-radius:8px;border-left:3px solid #c4b5fd}
+.t2-step-tips-label{display:flex;align-items:center;gap:4px;font-size:10px;font-weight:800;color:#d97706;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+.t2-step-tips-label::before{content:'';width:8px;height:8px;border-radius:50%;background:#f59e0b;box-shadow:0 0 8px rgba(245,158,11,.5);flex-shrink:0}
+.t2-tips-icon{font-size:11px}
+.t2-step-tips-bullets{display:flex;flex-direction:column;gap:6px}
+.t2-tips-bullet{font-size:11px;color:#78350f;line-height:1.6;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 10px}
+
+
+
+
+/* ── tier3 AI 妆效图模块 ── */
+.t3-card--ai-image .t3-ai-image-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.t3-card--ai-image .t3-ai-image { width: 62%; max-width: 240px; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 14px; box-shadow: 0 6px 18px rgba(0,0,0,.12); }
+.t3-card--ai-image .t3-ai-image-hint { font-size: 12px; color: #8a7f76; text-align: center; line-height: 1.4; }
+
+/* ── Tier2 UI upgrades: step badge, influencer loading, stagger animation ── */
+
+.t2-step-badge{font-size:11px;font-weight:800;color:#ec4899;background:linear-gradient(135deg,#fdf2f8,#f5f3ff);border:1px solid #f0abcf;border-radius:6px;padding:1px 7px;letter-spacing:.5px;flex-shrink:0}
+
+.t2-influencer-loading{display:flex;align-items:center;gap:14px;padding:12px 0;margin-bottom:8px}
+.t2-influencer-avatar{width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#fdf2f8,#f5f3ff);border:2px solid #f0abcf;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;animation:t2-pulse 2s ease-in-out infinite}
+.t2-influencer-skeleton{flex:1;display:flex;flex-direction:column;gap:6px}
+.t2-skeleton-line{height:10px;border-radius:5px;background:linear-gradient(90deg,#f0abcf 0%,#f5f3ff 50%,#f0abcf 100%);background-size:200% 100%;animation:t2-shimmer 1.5s linear infinite}
+
+@keyframes t2-pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.06);opacity:.85}}
+@keyframes t2-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+.t2-anim{opacity:0;animation:t2-fade-in .5s ease forwards}
+@keyframes t2-fade-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@media (prefers-reduced-motion:reduce){.t2-anim{animation:none;opacity:1}.t2-influencer-avatar,.t2-skeleton-line{animation:none}}
+
+</style>
+</head>
+<body>
+<div class="t2-page">
+  <div class="t2-card t2-card--hero t2-anim">
+    <div class="t2-hero-top">
+      <div class="t2-hero-portrait t2-hero-portrait--ph">&#128249;</div>
+      <div class="t2-hero-right">
+        <div class="t2-hero-badge">+ AI BEAUTY REPORT +</div>
+        <h1 class="t2-hero-main-title">风格进阶报告</h1>
+        <div class="t2-hero-subtitle">
+          <span class="t2-hero-line"></span><span>温柔知性风</span>妆容方案<span class="t2-hero-line"></span>
+        </div>
+      </div>
+    </div>
+    <div class="t2-hero-decode">
+      <div class="t2-hero-decode-label">方案解读</div>
+      <p class="t2-hero-decode-text">你的面部轮廓偏鹅蛋脸型，五官比例协调，底妆建议以轻薄通透为主，强调水光感。眼妆采用大地色系晕染，眉形顺着自然眉骨走向，唇妆选择豆沙玫瑰色系，整体妆容呈现知性温柔的轻熟风格。</p>
+      <div class="t2-hero-keywords">
+        <span class="t2-hero-kw">鹅蛋脸</span><span class="t2-hero-kw">水光底妆</span><span class="t2-hero-kw">大地色系</span><span class="t2-hero-kw">豆沙玫瑰唇</span>
+      </div>
+    </div>
+  </div>
+  <div class="t2-card t2-step-card t2-anim">
+    <div class="t2-step-title-row">
+      <span class="t2-step-badge">01</span><h2 class="t2-step-title">妆前护肤</h2>
+      <button class="t2-lightbulb-btn">&#128161;</button>
+    </div>
+    <div class="t2-step-section"><div class="t2-step-section-label">面部分析</div><p class="t2-step-section-text">你的皮肤偏干性，T区轻微泛油，眼下有轻度暗沉。妆前需要重点保湿和局部遮瑕。</p></div>
+    <div class="t2-step-section t2-step-why"><div class="t2-step-section-label">为什么这样推荐</div><p class="t2-step-section-text">干皮打底不足容易导致底妆卡粉，水光肌妆效需要湿润基底配合。</p></div>
+    <div class="t2-step-section t2-step-detail"><div class="t2-step-section-label">步骤</div><p class="t2-step-detail-text">洁面后先用保湿水拍脸，再取适量精华涂抹全脸，重点加强眼下和法令纹区域，最后用轻薄面霜封层，等待 5-8 分钟吸收。</p></div>
+    <div class="t2-step-section t2-step-tips"><div class="t2-step-tips-label"><span class="t2-tips-icon">&#9888;</span><span>避雷提示</span></div><div class="t2-step-tips-bullets"><div class="t2-tips-bullet">避免使用含酒精的爽肤水，会加剧干燥</div><div class="t2-tips-bullet">眼下遮瑕不要过于厚重，容易卡纹</div></div></div>
+  </div>
+  <div class="t2-card t2-step-card t2-anim">
+    <div class="t2-step-title-row">
+      <span class="t2-step-badge">02</span><h2 class="t2-step-title">底妆打造</h2>
+      <button class="t2-lightbulb-btn">&#128161;</button>
+    </div>
+    <div class="t2-step-section"><div class="t2-step-section-label">面部分析</div><p class="t2-step-section-text">肤色偏暖黄调，鼻翼两侧有轻微泛红，需要均匀肤色但不追求厚重遮瑕效果。</p></div>
+    <div class="t2-step-section t2-step-why"><div class="t2-step-section-label">为什么这样推荐</div><p class="t2-step-section-text">轻薄水光底妆最符合你的风格定位，厚重粉饼会掩盖五官的柔和感。</p></div>
+    <div class="t2-step-section t2-step-detail"><div class="t2-step-section-label">步骤</div><p class="t2-step-detail-text">取黄豆大小的隔离霜全脸涂抹，鼻翼两侧重点按压。粉底液用湿海绵从脸心向外推开，T区薄涂，两颊可稍厚以提亮。</p></div>
+    <div class="t2-step-section t2-step-tips"><div class="t2-step-tips-label"><span class="t2-tips-icon">&#9888;</span><span>避雷提示</span></div><div class="t2-step-tips-bullets"><div class="t2-tips-bullet">避免选色号过白，会显得假面</div><div class="t2-tips-bullet">定妆喷雾不要距离太近，容易结块</div></div></div>
+  </div>
+  <div class="t2-card t2-summary-card t2-anim">
+    <h2 class="t2-section-title">&#128204; 妆容总结</h2>
+    <p class="t2-summary-text">整体妆容以「清透 + 知性」为核心，底妆追求水光感，眼妆用大地色晕染打造深邃感，唇色选豆沙玫瑰色系。出门前用定妆喷雾锁定全脸，保持 8 小时不脱妆。这个妆容方案非常适合日常通勤和约会场景。</p>
+  </div>
+  <div class="t2-card t2-influencer-placeholder t2-anim">
+    <h2 class="t2-section-title">&#128120; 专属达人推荐</h2>
+    <div class="t2-influencer-loading">
+  <div class="t2-influencer-avatar">&#x1F465;&#xFE0F;</div>
+  <div class="t2-influencer-skeleton">
+    <div class="t2-skeleton-line" style="width:60%"></div>
+    <div class="t2-skeleton-line" style="width:40%"></div>
+    <div class="t2-skeleton-line" style="width:80%"></div>
+  </div>
+</div>
+<p class="t2-influencer-hint">正在为你匹配最合适的妆容达人，敬请期待…</p>
+  </div>
+  <div class="t2-footer">
+    <button class="t2-share-btn" style="background:linear-gradient(135deg,#ec4899,#8b5cf6)">分享报告</button>
+  </div>
+</div>
+</body>
+</html>

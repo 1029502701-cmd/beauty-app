@@ -1,1 +1,0 @@
-fetch('https://ccfu.ccwu.cc/api/tier1/analyze',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer test'},body:JSON.stringify({imageData:'data:image/png;base64,iVBORw0KGgo='})}).then(r=>{console.log('ccfu POST:',r.status,'server:'+r.headers.get('server'));return r.text()}).then(t=>console.log('body:'+t.substring(0,200)))

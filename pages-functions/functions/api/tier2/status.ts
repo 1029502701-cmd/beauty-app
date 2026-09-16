@@ -1,5 +1,5 @@
 import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
-import { requireAuth, beijingDate } from "../../_utils";
+import { requireAuth, beijingDate, extractJwt } from "../../_utils";
 import { advanceTier2Stage, readTier2Progress } from "../_tier2_stages";
 import type { Ctx } from "../../_utils";
 
@@ -70,7 +70,7 @@ export const GET = async (context) => {
       const stageDue = !row.updated_at || nowSec - row.updated_at >= 5;
       if (stageDue) {
         // 把当前调用方 JWT 透传给阶段引擎，ready 阶段用它写画像标签（非阻塞）
-        (env as any).__tier2_caller_jwt = (request.headers.get("Authorization") || "").replace("Bearer ", "").trim();
+        (env as any).__tier2_caller_jwt = extractJwt(request);
         const adv = await advanceTier2Stage(env, tier2Id);
         if (adv.advanced) row = (await selectRow("id = ? AND user_id = ?", [tier2Id, user.userId])) || row;
       }

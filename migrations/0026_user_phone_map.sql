@@ -1,9 +1,13 @@
+-- [已废弃 / SUPERSEDED] 本表是"身份转译层"：用本端 user_id 反查中枢手机号再调中枢接口。
+-- 历史上真实出过事故（JWT 解析不到手机号就静默返回0/报错，积分消费全部失效）。
+-- 现在中枢 JWT 自带 user_id claim，本端业务表直接按 user_id 存，不再需要手机号中转。
+-- 保留本文件仅为迁移历史追溯；当前代码里已无任何读写本表的路径，新建环境可跳过。
 -- 本端 user_id 与 中枢手机号 的映射表
 -- 中枢按手机号记账；登录代理拿到中枢 JWT 后写入本表，
 -- 供 resolveUserPhone 反查手机号（中枢签发的 JWT 不含 phone claim）。
-CREATE TABLE IF NOT EXISTS user_phone_map (
-  user_id TEXT PRIMARY KEY,
-  phone TEXT NOT NULL UNIQUE,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
+-- CREATE TABLE IF NOT EXISTS user_phone_map (
+--   user_id TEXT PRIMARY KEY,
+--   phone TEXT NOT NULL UNIQUE,
+--   created_at INTEGER NOT NULL,
+--   updated_at INTEGER NOT NULL
+-- );

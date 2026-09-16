@@ -1,5 +1,4 @@
 import { useState, useEffect, useContext, useCallback } from 'react';
-import { AuthContext } from '../context/AuthContext.jsx';
 import { BASE } from '../api.js';
 
 const STATUS_MAP = {
@@ -72,7 +71,7 @@ function parseContactList(value) {
 }
 
 export default function InfluencerApply() {
-  const { token } = useContext(AuthContext);
+  
   const [barePhoto, setBarePhoto] = useState(null);
   const [makeupPhoto, setMakeupPhoto] = useState(null);
   const [nickname, setNickname] = useState('');
@@ -94,8 +93,7 @@ export default function InfluencerApply() {
     setShowStatusModal(true);
     setStatusLoading(true);
     try {
-      const res = await fetch(BASE + '/influencers/mine', {
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await fetch(BASE + '/influencers/mine', { credentials: 'include',
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '请求失败');
@@ -105,7 +103,7 @@ export default function InfluencerApply() {
     } finally {
       setStatusLoading(false);
     }
-  }, [token]);
+  });
 
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
@@ -128,9 +126,8 @@ export default function InfluencerApply() {
       if (bio.trim()) form.append('bio', bio.trim());
       if (styles.length) form.append('styles', JSON.stringify(styles));
       if (platformLink.trim()) form.append('platform_link', platformLink.trim());
-      const res = await fetch(BASE + '/influencers/apply', {
+      const res = await fetch(BASE + '/influencers/apply', { credentials: 'include',
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
       const data = await res.json();
@@ -143,7 +140,7 @@ export default function InfluencerApply() {
     } finally {
       setSubmitting(false);
     }
-  }, [barePhoto, makeupPhoto, nickname, bio, styles, platformLink, token]);
+  }, [barePhoto, makeupPhoto, nickname, bio, styles, platformLink]);
 
   const handleCopy = (account, idx) => {
     const ta = document.createElement('textarea');

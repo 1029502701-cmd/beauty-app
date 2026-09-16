@@ -129,7 +129,7 @@ export default function Tier2Result({ content, isMock, btnStyle, onUnlockImage, 
     <RequireAuth>
       <div className="t2-page">
         {/* Hero */}
-        <div className="t2-card t2-card--hero">
+        <div className="t2-card t2-card--hero t2-anim">
           <div className="t2-hero-top">
             {facePhotoUrl ? (
               <img className="t2-hero-portrait" src={facePhotoUrl} alt="你的照片" />
@@ -172,8 +172,9 @@ export default function Tier2Result({ content, isMock, btnStyle, onUnlockImage, 
             {steps.map((step, idx) => {
               const products = productRecs[step.key] || step.products || [];
               return (
-                <div key={step.key || idx} className="t2-card t2-step-card">
+                <div key={step.key || idx} style={{ animationDelay: `${Math.min(idx * 0.08, 0.48)}s` }} className="t2-card t2-step-card t2-anim">
                   <div className="t2-step-title-row">
+                    <span className="t2-step-badge">{String(idx + 1).padStart(2, '0')}</span>
                     <h2 className="t2-step-title">{step.label}</h2>
                     {products.length > 0 && (
                       <button
@@ -220,15 +221,23 @@ export default function Tier2Result({ content, isMock, btnStyle, onUnlockImage, 
 
             {/* 2. 总结 */}
             {overallTips && (
-              <div className="t2-card t2-summary-card">
+              <div className="t2-card t2-summary-card t2-anim">
                 <h2 className="t2-section-title">📌 妆容总结</h2>
                 <p className="t2-summary-text">{overallTips}</p>
               </div>
             )}
 
             {/* 3. 达人匹配模块 */}
-            <div className="t2-card t2-influencer-placeholder">
+            <div className="t2-card t2-influencer-placeholder t2-anim">
               <h2 className="t2-section-title">👩 专属达人推荐</h2>
+                <div className="t2-influencer-loading">
+                  <div className="t2-influencer-avatar">&#x1F465;&#xFE0F;</div>
+                  <div className="t2-influencer-skeleton">
+                    <div className="t2-skeleton-line" style={{width:'60%'}}></div>
+                    <div className="t2-skeleton-line" style={{width:'40%'}}></div>
+                    <div className="t2-skeleton-line" style={{width:'80%'}}></div>
+                  </div>
+                </div>
               <p className="t2-influencer-hint">正在为你匹配最合适的妆容达人，敬请期待…</p>
             </div>
 

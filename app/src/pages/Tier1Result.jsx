@@ -65,11 +65,10 @@ export default function Tier1Result() {
     try {
       // 1. 调用后端获取 token 和 shareUrl
       const shareToken = await getStorageItem(STORAGE_KEYS.SESSION_TOKEN);
-      const res = await fetch(BASE + '/tier1/share', {
+      const res = await fetch(BASE + '/tier1/share', { credentials: 'include',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${shareToken}`,
         },
         body: JSON.stringify({ reportId }),
       });
