@@ -1,6 +1,5 @@
 import { useState, useEffect, useContext, useRef } from 'react';
 import { AuthContext, AuthProvider, setOnTokenInvalid } from './context/AuthContext.jsx';
-import Home from './pages/Home.jsx';
 import Capture from './pages/Capture.jsx';
 import Tier1Result from './pages/Tier1Result.jsx';
 import Tier2Result from './pages/Tier2Result.jsx';
@@ -25,12 +24,12 @@ function Router() {
   const [page, setPage] = useState(() => {
     const saved = sessionStorage.getItem('auth_redirect_from');
     const path = window.location.pathname;
-    return saved || (path === '/' ? '' : path) || '/home';
+    return saved || (path === '/' ? '' : path) || '/report';
   });
   useEffect(() => {
     const onPopState = () => {
       const path = window.location.pathname;
-      if (path !== page) setPage(path === '' ? '/home' : path);
+      if (path !== page) setPage(path === '' ? '/report' : path);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -59,7 +58,7 @@ function Router() {
   const handleLogout = async () => {
     await logout();
     sessionStorage.removeItem('auth_redirect_from');
-    const target = '/home';
+    const target = '/report';
     setPage(target);
     window.history.replaceState(null, '', target);
   };
@@ -78,13 +77,13 @@ function Router() {
     redirectToAuthCenter();
   }, [token, loading, validating]);
 
-  // 有登录态且落在根路径 → 归一到 /home
+    // 有登录态且落在根路径 → 归一到 /report（选项卡页）
   useEffect(() => {
     if (!token || loading) return;
     const path = window.location.pathname;
     if (path === '/' || path === '') {
-      setPage('/home');
-      window.history.replaceState(null, '', '/home');
+      setPage('/report');
+      window.history.replaceState(null, '', '/report');
     }
   }, [token, loading]);
 
@@ -96,13 +95,12 @@ function Router() {
   // /login 仅作为本地调试（?local=1）入口保留；正常流程会被跳中枢
   const renderPage = () => (
     <RequireAuth
-      fallbackPath="/home"
+      fallbackPath="/report"
       onNavigate={(path) => {
         setPage(path);
         window.history.replaceState(null, '', path);
       }}
     >
-      {page === '/home' && <Home onLogout={handleLogout} />}
       {page === '/capture' && <Capture />}
       {page === '/tier1-result' && <Tier1Result />}
       {page === '/tier2-result' && <Tier2Result />}
