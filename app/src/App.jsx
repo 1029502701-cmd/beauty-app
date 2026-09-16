@@ -49,6 +49,8 @@ function Router() {
       if (invite) sessionStorage.setItem('invite_code', invite);
       const clean = new URL(window.location.href);
       clean.search = '';
+      // 拿到中枢登录信息（cookie 已共享）→ 直接进选项卡页 /report
+      setPage('/report'); window.history.replaceState(null, '', '/report');
       window.history.replaceState(null, '', clean.pathname + clean.hash);
       login(); // 重新探测 cookie 登录态
     }
