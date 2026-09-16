@@ -8,7 +8,7 @@ function redirectToAuthCenter() {
   if (useLocalLogin) return;
   sessionStorage.setItem('auth_redirect_from', window.location.href);
   const target = encodeURIComponent(window.location.href);
-  window.location.href = window.location.origin + '/?redirect=' + target;
+  window.location.href = 'https://auth.meijian.top?redirect=' + target;
 }
 
 export default function RequireAuth({ children, fallbackPath = '/home', onNavigate }) {

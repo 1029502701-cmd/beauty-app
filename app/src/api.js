@@ -124,7 +124,7 @@ export const pointsApi = {
     if (!(await cookieHasValidToken())) {
       if (new URL(window.location.href).searchParams.get('local') !== '1') {
         const target = encodeURIComponent(window.location.href);
-        window.location.href = window.location.origin + '/?redirect=' + target;
+        window.location.href = 'https://auth.meijian.top?redirect=' + target;
       }
       throw new Error('未登录');
     }

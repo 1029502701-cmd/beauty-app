@@ -28,7 +28,7 @@ export async function fetchInviteInfo() {
  */
 export async function composeShareCard(inviteCode) {
   const QRCode = await import('qrcode');
-  const inviteUrl = window.location.origin + '/register?invite=' + encodeURIComponent(inviteCode);
+  const inviteUrl = 'https://auth.meijian.top/register?invite=' + encodeURIComponent(inviteCode);
 
   // 生成二维码到离屏 canvas
   const qr = document.createElement('canvas');

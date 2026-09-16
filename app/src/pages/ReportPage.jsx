@@ -1071,7 +1071,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
 
   // 专属报告解锁：token 购买入口已废弃，「购买」改为跳转中枢购买积分页
   const handleTier3Buy = useCallback(() => {
-    window.location.href = window.location.origin + '/?redirect=' + encodeURIComponent(window.location.href);
+    window.location.href = 'https://auth.meijian.top?redirect=' + encodeURIComponent(window.location.href);
   }, []);
 
   const handleTier3Redeem = useCallback(async () => {
@@ -1137,7 +1137,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
       // 优先用报告链接，其次用注册邀请链接
       const shareUrl = reportId
         ? BASE + '/report?id=' + encodeURIComponent(reportId)
-        : (inviteCode ? window.location.origin + '/register?invite=' + encodeURIComponent(inviteCode) : window.location.href);
+        : (inviteCode ? 'https://auth.meijian.top/register?invite=' + encodeURIComponent(inviteCode) : window.location.href);
       // composeShareCard 内部用固定邀请注册链接；这里需要专属报告链接，手动合成
       const QRCode = await import('qrcode');
       const qr = document.createElement('canvas');

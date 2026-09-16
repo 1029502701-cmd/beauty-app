@@ -17,7 +17,7 @@ export function redirectToAuthCenter() {
   const useLocalLogin = new URL(window.location.href).searchParams.get('local') === '1';
   if (useLocalLogin) return;
   const target = encodeURIComponent(window.location.href);
-  window.location.href = window.location.origin + '/?redirect=' + target;
+  window.location.href = 'https://auth.meijian.top?redirect=' + target;
 }
 
 function Router() {
