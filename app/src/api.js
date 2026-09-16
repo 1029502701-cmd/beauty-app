@@ -137,7 +137,7 @@ export async function hubFetch(path, body) {
   });
   if (res.status === 401) {
     tokenInvalid = true;
-    window.open(AUTH_HUB + '/login?redirect=' + encodeURIComponent(window.location.href), '_blank');
+    window.location.href = AUTH_HUB + '/login';
     throw new Error('未登录');
   }
   if (!res.ok) {

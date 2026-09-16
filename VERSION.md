@@ -18,4 +18,4 @@
 |----|-----|------|
 | GitHub | https://github.com/1029502701-cmd/beauty-app | ✅ 3ff3248 |
 | Pages Dev | https://beauty-api-pages.pages.dev | ✅ 已部署 |
-| 自定义域名 | https://ccfu.ccwu.cc | ✅ 已部署 |
+| 自定义域名 | https://beauty.meijian.top | ✅ 已部署（旧域名 ccfu.ccwu.cc 逐步废弃） |

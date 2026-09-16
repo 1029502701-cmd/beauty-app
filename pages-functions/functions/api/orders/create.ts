@@ -36,8 +36,9 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
      VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`
   ).bind(orderId, user.userId, amount, channel ?? "mock", outTradeNo, orderPurpose, now).run();
 
-  // payUrl 指向本项目内部的模拟支付页（仅开发/测试使用）
-  const payUrl = `/mock-pay.html?orderId=${orderId}`;
+  // 模拟支付页已移除（兑换码直授权解锁上线后，token 购买入口废弃）；
+  // 保留 orderId 供测试时手动调用 mock-pay-confirm（后续正式对接微信/支付宝后替换）
+  const payUrl = `/api/orders/mock-pay-confirm?orderId=${orderId}`;
 
   return new Response(
     JSON.stringify({ orderId, payUrl, outTradeNo, amount }),

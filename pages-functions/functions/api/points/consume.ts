@@ -10,8 +10,8 @@ const UNLOCK_REPORT_AMOUNT = 6;
 
 export const onRequestPost = async (context) => {
   const { request } = context;
-  const authHeader = request.headers.get('Authorization') || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : authHeader.trim();
+  const authHeader = extractJwt(request);
+  const token = authHeader;
   if (!token) {
     return new Response(JSON.stringify({ error: '未登录' }), {
       status: 401, headers: { 'Content-Type': 'application/json' },

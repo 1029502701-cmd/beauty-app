@@ -1,5 +1,5 @@
 import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
-import { requireAuth } from "../../_utils";
+import { requireAuth, extractJwt } from "../../_utils";
 
 // GET /api/invite/mine
 // 代理调用 auth-center，返回当前用户的邀请码和成功邀请人数
@@ -17,8 +17,7 @@ export const GET: FrameworkCallbackOptions["GET"] = async (context) => {
   }
 
   // 取 Authorization header 中的 token
-  const authHeader = request.headers.get("Authorization");
-  const token = authHeader?.replace("Bearer ", "") ?? "";
+  const token = extractJwt(request);
   if (!token) {
     return new Response(JSON.stringify({ error: "未授权" }), {
       status: 401,

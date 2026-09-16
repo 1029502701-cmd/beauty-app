@@ -1,60 +1,50 @@
-import type { FrameworkCallbackOptions } from '@cloudflare/workers-types';
-import { requireAuth } from '../../_utils';
+// GET/PUT /api/auth/profile —— 纯透传到中枢 /api/auth/profile（补全/更新性别、年龄段）。
+// 中枢签发的 JWT 本身已带 gender/age_range claim；本端不本地维护用户表副本。
+// 统一鉴权：Authorization: Bearer <中枢JWT>，直接透传给中枢。
+import { proxyAuthCenter, authCenterBase } from "./_proxy";
+import { extractJwt } from "../../_utils";
 
-export const GET: FrameworkCallbackOptions['GET'] = async (context) => {
+
+export const GET = async (context) => {
   const { request, env } = context;
-  const auth = await requireAuth(request, env);
-  if (!auth) {
-    return new Response(JSON.stringify({ error: '未授权' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
-  }
-  const authHeader = request.headers.get('Authorization');
-  const token = authHeader?.replace('Bearer ', '') ?? '';
-  const sessionKey = 'session:' + token;
-  let gender = auth.gender;
-  let age_range = auth.age_range;
+  const jwt = extractJwt(request);
   try {
-    const sessionStr = await env.SESSION_KV.get(sessionKey);
-    if (sessionStr) {
-      const s = JSON.parse(sessionStr);
-      gender = s.gender || auth.gender;
-      age_range = s.age_range || auth.age_range;
-    }
-  } catch (e) {
-    console.error('[profile/GET] session read error:', e);
+    const res = await fetch(authCenterBase(env) + "/api/auth/profile", {
+      method: "GET",
+      headers: { Authorization: jwt },
+    });
+    const data = await res.json().catch(() => ({}));
+    return new Response(JSON.stringify(data), {
+      status: res.status === 401 || res.status === 403 ? res.status : res.ok ? 200 : 502,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    console.error("[auth/profile GET] proxy error:", err);
+    return new Response(JSON.stringify({ error: "网络错误，请稍后重试" }), {
+      status: 502,
+      headers: { "Content-Type": "application/json" },
+    });
   }
-  return new Response(JSON.stringify({ gender, age_range, completed: !!(gender && age_range) }), {
-    headers: { 'Content-Type': 'application/json' },
-  });
 };
 
-export const POST: FrameworkCallbackOptions['POST'] = async (context) => {
+export const PUT = async (context) => {
   const { request, env } = context;
-  const auth = await requireAuth(request, env);
-  if (!auth) {
-    return new Response(JSON.stringify({ error: '未授权' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
-  }
-  const body = await request.json();
-  const { gender, age_range } = body as { gender?: string; age_range?: string };
-  if (!gender || !age_range) {
-    return new Response(JSON.stringify({ error: '请提供性别和年龄范围' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-  }
-  const authHeader = request.headers.get('Authorization');
-  const token = authHeader?.replace('Bearer ', '') ?? '';
-  const sessionKey = 'session:' + token;
+  const jwt = extractJwt(request);
+  let body;
   try {
-    const sessionStr = await env.SESSION_KV.get(sessionKey);
-    if (sessionStr) {
-      const s = JSON.parse(sessionStr);
-      s.gender = gender;
-      s.age_range = age_range;
-      const ttl = Math.max(s.expiresAt - Math.floor(Date.now() / 1000), 60);
-      await env.SESSION_KV.put(sessionKey, JSON.stringify(s), { expirationTtl: ttl });
-    }
-  } catch (e) {
-    console.error('[profile/POST] session write error:', e);
+    body = await request.json();
+  } catch {
+    return new Response(JSON.stringify({ error: "请求体不是合法 JSON" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
-  return new Response(JSON.stringify({ gender, age_range }), { headers: { 'Content-Type': 'application/json' } });
+  const payload = {
+    ...(body?.gender ? { gender: body.gender } : {}),
+    ...(body?.age_range ? { age_range: body.age_range } : {}),
+  };
+  return await proxyAuthCenter("PUT", "/api/auth/profile", env, payload, request, "auth/profile PUT");
 };
 
-export const onRequestGet = async (...args) => GET(args[0]);
-export const onRequestPost = async (...args) => POST(args[0]);
+export const onRequestGet = (...args) => GET(args[0]);
+export const onRequestPut = (...args) => PUT(args[0]);

@@ -22,7 +22,7 @@ px wrangler whoami\ 显示账户为 \1029502701@qq.com\
 - **必须使用 account \235c8c47...\\**，OAuth 默认登录到另一个账户
 - **必须从 pages-functions 目录部署**（包含 functions bundle + 静态资源）
 - 始终用 --branch=master
-- 部署后双域名生效：beauty-api-pages.pages.dev 和 ccfu.ccwu.cc
+- 部署后双域名生效：beauty-api-pages.pages.dev 和 ccfu.ccwu.cc（旧域名逐步废弃，新主域 beauty.meijian.top / chat.meijian.top）
 - 2026-09-01: 修复登录重定向循环 — tokenProcessRef 在注销时未重置
 
 ---

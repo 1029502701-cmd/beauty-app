@@ -36,7 +36,7 @@ export const POST: FrameworkCallbackOptions["POST"] = async (context) => {
     .bind(shareId, token, user.userId, reportId, now)
     .run();
 
-  const baseUrl = (env as any).BASE_URL || "";
+  const baseUrl = (env as any).BASE_URL || "https://beauty.meijian.top";
   const shareUrl = baseUrl
     ? `${baseUrl}/capture?ref=${token}`
     : `/capture?ref=${token}`;

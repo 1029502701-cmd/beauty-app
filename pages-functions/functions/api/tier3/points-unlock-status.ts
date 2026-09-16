@@ -1,5 +1,5 @@
 import type { FrameworkCallbackOptions } from "@cloudflare/workers-types";
-import { requireAuth } from "../../_utils";
+import { requireAuth, extractJwt } from "../../_utils";
 
 // GET /api/tier3/points-unlock-status
 // 查询当前用户是否已通过积分解锁专属报告（本端 tier3_points_unlock 持久化记录）。
@@ -25,8 +25,7 @@ export const GET: FrameworkCallbackOptions["GET"] = async (context) => {
 
   let balance: number | null = null;
   try {
-    const authHeader = request.headers.get("Authorization") || "";
-    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : authHeader.trim();
+    const jwt = extractJwt(request);
     const res = await fetch("https://auth.meijian.top/api/points/balance", {
       method: "GET",
       headers: { Authorization: "Bearer " + jwt },
