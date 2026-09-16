@@ -123,6 +123,14 @@ export function getAuthToken() {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
+// 纯前端登录态判断：cookie 里存在 auth_token（Domain=.meijian.top，中枢登录写入，14 天有效）即已登录，
+// 无需再调一次 /me 或本端 /auth/cookie-check 探测。
+export function isLoggedIn() { return !!getAuthToken(); }
+
+// 未登录入口：当前页跳中枢登录（带 ?redirect= 回跳原页）
+export function goLogin() {
+  window.location.href = AUTH_HUB + '/login?redirect=' + encodeURIComponent(window.location.href);
+}
 // ② 调中枢（跨域带 token）；401 说明没登录或 token 过期 → 跳中枢登录页
 const AUTH_HUB = 'https://auth.meijian.top';
 export async function hubFetch(path, body) {
@@ -166,16 +174,20 @@ async function pointsFetch(path, options = {}) {
 // 解锁资格记录仍走本端 /api/tier3/points-unlock-*（本端 D1 台账）。
 export const pointsApi = {
   getBalance: async () => {
-    // 无有效登录态（cookie 里没有 token）：跳中枢登录（带 ?redirect= 当前页）
-    if (!(await cookieHasValidToken())) {
-      if (new URL(window.location.href).searchParams.get('local') !== '1') {
-        const target = encodeURIComponent(window.location.href);
-        window.location.href = 'https://auth.meijian.top?redirect=' + target;
-      }
+    // 纯前端判断：cookie 里没有 auth_token 且非本地调试 → 当前页跳中枢登录
+    if (!isLoggedIn() && new URL(window.location.href).searchParams.get('local') !== '1') {
+      goLogin();
       throw new Error('未登录');
     }
     const data = await pointsFetch('/api/points/balance');
     return data.balance ?? 0;
+  },
+  // 3 档报告生成成功后赠送积分（中枢按 related_id 去重，重复调用 granted:false，不报错）
+  grantTier3: async (reportId) => {
+    const data = await pointsFetch('/api/points/grant-tier3', {
+      body: { reportId: reportId ?? undefined },
+    });
+    return { granted: !!data.granted, balance: typeof data.balance === 'number' ? data.balance : null };
   },
   // 查询是否已积分解锁专属报告（本端 tier3_points_unlock 落库），刷新/换设备后恢复资格
   // 同时顺带返回最新积分余额，便于一次性拿到"资格+余额"

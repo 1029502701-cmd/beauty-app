@@ -819,6 +819,8 @@ const tier3PhotoKeyLiveRef = useRef(null);
         }
         setTier3Content(finalContent);
 
+        // 报告生成成功 → 中枢赠送积分（grant-tier3 幂等去重，重复调用 granted:false，不报错）
+        if (data.id) pointsApi.grantTier3(data.id).catch(() => {});
         // Step 2：报告主体已出，二层商品按需补全（幂等；失败不阻断展示）
         if (data.id) {
           fetchWithCookie(BASE + '/tier3/enrich-products', { method: 'POST', headers: { 'Content-Type': 'application/json'}, body: JSON.stringify({ reportId: data.id }) })
@@ -1012,6 +1014,8 @@ const tier3PhotoKeyLiveRef = useRef(null);
               cheeks: [{ name: "膏状腮红", reason: "自然红润" }]}};
         }
         setTier3Content(finalContent);
+        // 生成成功 → 中枢赠送积分（幂等去重）
+        if (data.id) pointsApi.grantTier3(data.id).catch(() => {});
         setTier3ContentPhotoUrl(tier3PhotoKeyLiveRef.current ? "/api/r2-proxy?key=" + encodeURIComponent(tier3PhotoKeyLiveRef.current) + "&bucket=temp" : null);
         // 记住报告 id + 收起“查看报告”态；生成完立即后台补全淘宝商品（点灯泡时有数据，不卡）
         setTier3ReportId(data.id || null);
