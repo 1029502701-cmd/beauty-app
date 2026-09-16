@@ -130,7 +130,7 @@ export async function probeAuthCenterSession(env: Ctx["env"], req: Request): Pro
   const jwt = extractJwt(req);
   if (!jwt || jwt.split(".").length !== 3) return false;
   try {
-    const res = await fetch(authCenterBaseForProbe(env) + "/api/auth/profile", {
+    const res = await fetch(authCenterBaseForProbe(env) + "/api/auth/me", {
       method: "GET",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + jwt },
       signal: AbortSignal.timeout(8000),
