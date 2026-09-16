@@ -116,7 +116,53 @@ export const profileApi = {
   },
 };
 
-// 前端 pointsApi 积分读/扣直连中枢用户态接口（getBalance/unlockReport）；
+// ── 中枢直连（BEIZHUANG_INTEGRATION）：同域 .meijian.top cookie 天然可达，读 auth_token 带 Bearer 跨域调用 ─
+// ① 读 cookie（美妆前端在 beauty.meijian.top 下可读到 .meijian.top 域的 cookie）
+export function getAuthToken() {
+  const m = document.cookie.match(/(?:^|; )auth_token=([^;]*)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+// ② 调中枢（跨域带 token）；401 说明没登录或 token 过期 → 跳中枢登录页
+const AUTH_HUB = 'https://auth.meijian.top';
+export async function hubFetch(path, body) {
+  const token = getAuthToken();
+  const res = await fetch(AUTH_HUB + path, {
+    method: body ? 'POST' : 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: 'Bearer ' + token } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 401) {
+    tokenInvalid = true;
+    window.open(AUTH_HUB + '/login?redirect=' + encodeURIComponent(window.location.href), '_blank');
+    throw new Error('未登录');
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(data?.error || data?.reason || '中枢请求失败'), { status: res.status, data });
+  }
+  return res.json();
+}
+
+// 积分接口统一入口：cookie 里能读到 auth_token → 中枢直连（hubFetch）；
+// 读不到（cookie 是 HttpOnly、或本地开发跨域限制）→ 退回本端 /api 代理
+//（服务端从共享 cookie 取 JWT 转发中枢），功能不断。
+async function pointsFetch(path, options = {}) {
+  if (getAuthToken()) {
+    try {
+      return await hubFetch(path, options.body !== undefined ? options.body : null);
+    } catch (err) {
+      if (err && typeof err.status === "number" && err.status >= 400) throw err;
+      return authCenterFetch(path, options);
+    }
+  }
+  return authCenterFetch(path, options);
+}
+
+// 前端 pointsApi：积分读/扣走中枢直连（cookie 有 auth_token 时 hubFetch 直连 auth.meijian.top），读不到 token 自动退回本端代理；
 // 解锁资格记录仍走本端 /api/tier3/points-unlock-*（本端 D1 台账）。
 export const pointsApi = {
   getBalance: async () => {
@@ -128,7 +174,7 @@ export const pointsApi = {
       }
       throw new Error('未登录');
     }
-    const data = await authCenterFetch('/api/points/balance');
+    const data = await pointsFetch('/api/points/balance');
     return data.balance ?? 0;
   },
   // 查询是否已积分解锁专属报告（本端 tier3_points_unlock 落库），刷新/换设备后恢复资格
@@ -157,29 +203,61 @@ export const pointsApi = {
     if (!res.ok) throw new Error(data?.error || '记录解锁状态失败');
     return data;
   },
-  // 解锁专属（3 档）报告：价格/去重由本端服务端定，前端只传 reportId
+  // 解锁专属（3 档）报告：动作成功那一刻调中枢 /api/points/consume（cookie 有 auth_token 时 hubFetch 直连，
+  // 否则走本端 /api/points/consume 代理；金额/去重服务端写死，前端只传 reportId，防改价）。
+  // 402 积分不足 / 已扣过 都按"未成功"处理，返回 consumed:false + reason + balance。
   unlockReport: async (reportId) => {
-    const res = await fetch(BASE + '/points/consume', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'unlock_report', reportId }),
-    });
-    const data = await res.json().catch(() => ({}));
-    // 402 积分不足 / 已解锁 都按"未成功"处理，返回 consumed:false + reason
-    if (!res.ok) {
+    const body = { action: 'unlock_report', reportId };
+    const fallback = async () => {
+      const res = await fetch(BASE + '/points/consume', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          consumed: false,
+          balance: data.balance ?? null,
+          reason: data.reason || data.error || '积分不足或扣减失败',
+          status: res.status,
+        };
+      }
       return {
-        consumed: false,
+        consumed: !!data.consumed,
         balance: data.balance ?? null,
-        reason: data.reason || data.error || '积分不足或扣减失败',
-        status: res.status,
+        reason: data.reason || '',
       };
-    }
-    return {
-      consumed: !!data.consumed,
-      balance: data.balance ?? null,
-      reason: data.reason || '',
     };
+    if (getAuthToken()) {
+      // 直连中枢：本端 consume 代理的服务端语义 = 中枢 /api/points/consume（amount 服务端定、related_id 去重）
+      try {
+        const data = await hubFetch('/api/points/consume', {
+          reason: 'unlock_report',
+          amount: UNLOCK_REPORT_AMOUNT,
+          related_id: 'unlock_report_' + String(reportId),
+        });
+        return {
+          consumed: !!data.consumed,
+          balance: data.balance ?? null,
+          reason: data.reason || '',
+        };
+      } catch (err) {
+        if (err && typeof err.status === 'number' && err.status >= 400) {
+          // 中枢明确拒绝（402 积分不足等）：按未成功处理，直接返回
+          const d = err.data || {};
+          return {
+            consumed: false,
+            balance: typeof d.balance === 'number' ? d.balance : null,
+            reason: d.reason || d.error || err.message || '积分不足或扣减失败',
+            status: err.status,
+          };
+        }
+        return fallback(); // 网络/CORS 异常 → 退回本端代理
+      }
+    }
+    return fallback();
   },
 };
 
