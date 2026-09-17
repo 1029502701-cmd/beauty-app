@@ -15,7 +15,7 @@ const RESULT_ITEMS = [
 ];
 
 function navigateBack() {
-  window.history.pushState({}, '', '/home');
+  window.location.href = 'https://auth.meijian.top/home';
 }
 
 /** 检测是否在 Capacitor 原生环境 */
@@ -161,7 +161,7 @@ export default function Tier1Result() {
   }, [shareLoading, reportId]);
 
   return (
-    <RequireAuth fallbackPath="/home">
+<RequireAuth fallbackPath="/report">
       <div className="tier1-result-page">
         {/* ── 隐藏分享卡片（仅用于截图，不占据视觉空间）── */}
         <div

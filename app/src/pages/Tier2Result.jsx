@@ -4,8 +4,7 @@ import RequireAuth from '../router/RequireAuth.jsx';
 const AD_DURATION_SEC = 5;
 
 function navigateBack() {
-  window.history.pushState({}, '', '/home');
-  window.dispatchEvent(new PopStateEvent('popstate'));
+  window.location.href = 'https://auth.meijian.top/home';
 }
 
 function AdOverlay({ duration, onComplete }) {

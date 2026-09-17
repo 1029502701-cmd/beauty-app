@@ -59,7 +59,7 @@ async function callAnalyze(base64, token, signal) {
   if (typeof base64 !== 'string' || !base64) {
     throw new Error('图片数据异常，请重新选择照片');
   }
-  if (!effectiveToken) {
+  if (!token) {
     throw new Error('请先登录');
   }
   let blob;
@@ -225,11 +225,8 @@ export default function CapturePhotoUpload({ onComplete, onCancel, compact }) {
 
   const handleCancel = useCallback(() => {
     controllerRef.current?.abort();
-    setStage('select');
-    setPreview(null);
-    setError(null);
-    onCancel?.();
-  }, [onCancel]);
+    window.location.href = 'https://auth.meijian.top/home';
+  }, []);
 
   if (stage === 'select') {
     return (

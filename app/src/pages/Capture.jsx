@@ -90,7 +90,7 @@ function navigate(path, state) {
 }
 
 function navigateHome() {
-  navigate('/home');
+  window.location.href = 'https://auth.meijian.top/home';
 }
 
 function extractRefParam() {

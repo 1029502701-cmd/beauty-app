@@ -11,7 +11,7 @@ function redirectToAuthCenter() {
   window.location.href = 'https://auth.meijian.top?redirect=' + target;
 }
 
-export default function RequireAuth({ children, fallbackPath = '/home', onNavigate }) {
+export default function RequireAuth({ children, fallbackPath = '/report', onNavigate }) {
   const { token, loading, validating } = useContext(AuthContext);
   const [forceRedirect, setForceRedirect] = useState(false);
   const hasNavigatedRef = useRef(false);

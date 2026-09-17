@@ -49,8 +49,7 @@ const TIER3_FALLBACK_OPTIONS = {
   timeCost:    ['5分钟极简', '15分钟日常', '30分钟以上精致']};
 
 function navigateBack() {
-  window.history.pushState({}, '', '/home');
-  window.dispatchEvent(new PopStateEvent('popstate'));
+  window.location.href = 'https://auth.meijian.top/home';
 }
 
 function navigateToCapture() {
@@ -252,16 +251,6 @@ const hasProductRecs = (productRecs && typeof productRecs === 'object' && Object
         </div>
       </div>
 
-      {/* AI 妆效图模块（后台 tier3_show_ai_image 可隐藏） */}
-      {showAiImage && aiImageUrl && (
-        <div className="t3-card t3-card--ai-image">
-          <h2 className="t3-card-title">🪞 AI 妆效参考</h2>
-          <div className="t3-ai-image-wrap">
-            <img className="t3-ai-image" src={aiImageUrl} alt="AI 妆效参考图" />
-            <span className="t3-ai-image-hint">基于你的照片 + 本报告妆容风格生成，仅供参考</span>
-          </div>
-        </div>
-      )}
 
       {/* 风格与场景融合 */}
       {styleNote && (
@@ -291,6 +280,17 @@ const hasProductRecs = (productRecs && typeof productRecs === 'object' && Object
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* AI 妆效图模块（后台 tier3_show_ai_image 可隐藏） */}
+      {showAiImage && aiImageUrl && (
+        <div className="t3-card t3-card--ai-image">
+          <h2 className="t3-card-title">🪞 AI 妆效参考</h2>
+          <div className="t3-ai-image-wrap">
+            <img className="t3-ai-image" src={aiImageUrl} alt="AI 妆效参考图" />
+            <span className="t3-ai-image-hint">基于你的照片 + 本报告妆容风格生成，仅供参考</span>
           </div>
         </div>
       )}
@@ -759,6 +759,9 @@ const tier3PhotoKeyLiveRef = useRef(null);
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) setArchiveDetail(data);
+        // 档案详情：恢复该报告的 AI 妆效图（步骤与商品之间展示）
+        if (data && data.aiImageUrl) setTier3AiImageUrl(data.aiImageUrl);
+        if (data && data.photoUrl) setTier3ContentPhotoUrl(data.photoUrl);
         // Step 2：二层界面进入时按需补全淘宝商品（幂等；已补全则秒回，失败不影响报告主体）
         fetchWithCookie(BASE + '/tier3/enrich-products', { method: 'POST', headers: { 'Content-Type': 'application/json'}, body: JSON.stringify({ reportId: archiveOpenId }) })
           .then((r) => (r.ok ? r.json() : null))
@@ -1040,6 +1043,13 @@ const tier3PhotoKeyLiveRef = useRef(null);
         tier3RedeemCodeUsedRef.current = null;
         // 生成成功后回传的最新余额（本端 generate 已 proxy 读 auth-center），刷新"扣完积分"数字
         if (typeof data.balance === 'number') setTier3PointsBalance(data.balance);
+        // AI 妆效图：generate 内已尝试同步生成（最多 8s）；未拿到则后台补拉一次（幂等，已有图直接回）
+        if (data.id && data.facePhotoKey && !(data.aiImageUrl)) {
+          fetchWithCookie(BASE + '/tier3/ai-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reportId: data.id, photoKey: data.facePhotoKey }) })
+            .then((aiRes) => aiRes.json())
+            .then((ai) => { if (ai && ai.aiImageUrl) setTier3AiImageUrl(BASE + '/r2-proxy?key=' + encodeURIComponent(ai.aiImageUrl) + '&bucket=temp'); })
+            .catch(() => {});
+        }
       }
     } catch (e) {
         setTier3Error('生成超时或服务异常，请点下方按钮重试');
@@ -1063,12 +1073,8 @@ const tier3PhotoKeyLiveRef = useRef(null);
       setTier3AnswerFlash(null);
       setTier3CurrentQuestionIndex((prev) => {
         const next = prev + 1;
-            if (next >= TIER3_QUESTIONS.length) {
-                // 问卷全部完成 → 进入照片上传步骤（不再直接生成）
-        } else {
-                return next;
-        }
-        return prev;
+        // 问卷只有 4 题：全部答完（next >= 题数）后停在最后一题，不再翻页；页面渲染层据此切到照片上传步骤
+        return next >= TIER3_QUESTIONS.length ? prev : next;
       });
     }, 320);
   }, [handleTier3DoSubmit, tier3CurrentQuestionIndex]);
@@ -1376,7 +1382,7 @@ const tier3PhotoKeyLiveRef = useRef(null);
   const expiringSoon = tier3ExpireMs ? (tier3ExpireMs - Date.now()) <= 5 * 24 * 60 * 60 * 1000 : false;
 
   return (
-    <RequireAuth fallbackPath="/home">
+      <RequireAuth fallbackPath="/report">
       <div className="report-page">
         <div ref={shareCardRef} className="share-card" style={{ position: 'absolute', left: -9999, top: 0 }}>
           <div className="share-card-photo-wrap">
